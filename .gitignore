@@ -43,3 +43,5 @@ token.pickle
 
 # Private Data
 *.sqlite3
+context/
+
