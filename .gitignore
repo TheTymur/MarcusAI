@@ -42,5 +42,4 @@ token.json
 token.pickle
 
 # Private Data
-context/
 *.sqlite3
