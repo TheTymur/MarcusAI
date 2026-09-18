@@ -1,9 +1,10 @@
 import os
+import sys
 import time
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from tools import multiply, GmailClient, exit_agent, get_current_date_and_time
+from tools import multiply, GmailClient, exit_agent, get_current_date_and_time, VectorMemory
 import re
 with open("context/identity.md", "r") as f:
     role = f.read()
@@ -15,12 +16,13 @@ with open("context/soul.md", "r") as f:
 master_instructions = role + "\n" + user + "\n" + personality
 
 gmail_client = GmailClient()
+memory_client = VectorMemory()
 
 available_tools = [multiply, gmail_client.read_recent_emails, gmail_client.create_label, gmail_client.apply_label,
     gmail_client.delete_label, gmail_client.remove_label, gmail_client.list_labels, gmail_client.count_messages_in_label, 
     gmail_client.search_emails, gmail_client.delete_message, gmail_client.delete_draft, gmail_client.list_drafts, exit_agent,
     gmail_client.create_draft, gmail_client.modify_draft, gmail_client.send_draft, gmail_client.read_email_content, get_current_date_and_time,
-    gmail_client.create_response_draft, gmail_client.forward_email]
+    gmail_client.create_response_draft, gmail_client.forward_email, memory_client.search_knowledge_base]
 
 load_dotenv()
 api_key = os.getenv("API_KEY_GEMINI")
@@ -28,6 +30,13 @@ api_key = os.getenv("API_KEY_GEMINI")
 client = genai.Client(api_key=api_key)
 
 def start_agent():
+
+    global master_instructions
+
+    recent_memory = memory_client.get_recent_summaries(limit=3)
+
+    master_instructions += recent_memory
+
     chat = client.chats.create(
         model="gemini-3.1-flash-lite",
         config=types.GenerateContentConfig(
@@ -41,9 +50,42 @@ def start_agent():
         base_delay = 2
         
         for attempt in range(max_retries + 1):
+
             try:
                 response = chat.send_message(user_input)
                 break
+
+            except SystemExit:
+                print("\n[System Info]: Saving final session memory before exit...")
+
+                if len(chat.get_history()) > 2: 
+                    history_text = ""
+                    for msg in chat.get_history():
+                        if getattr(msg, "parts", None) and getattr(msg.parts[0], "text", None):
+                            history_text += f"{msg.role.capitalize()}: {msg.parts[0].text}\n"
+
+                    summary_prompt = (
+                        "Summarize the final steps of this conversation in 1-2 sentences. "
+                        "Focus on tasks completed right before the user exited.\n\n"
+                        f"Conversation:\n{history_text}"
+                    )
+                    
+                    try:
+                        summary_response = client.models.generate_content(
+                            model="gemini-3.1-flash-lite",
+                            contents=summary_prompt
+                        )
+                        if summary_response.text:
+                            memory_client.add_memory(
+                                text_chunk=summary_response.text, 
+                                source_id="chat_summary_final", 
+                                chunk_index=int(time.time())
+                            )
+                    except Exception as mem_e:
+                        print(f"[System Error]: Could not save final memory: {mem_e}")
+                
+                sys.exit(0)
+                
             except Exception as e:
                 error_msg = str(e)
                 if "503" in error_msg or "UNAVAILABLE" in error_msg:
@@ -79,7 +121,38 @@ def start_agent():
             print("\nAI: " + text_response + "\n")
 
         if len(chat.get_history()) > 10:
-            print("\n[System Info]: Chat history getting too long, resetting memory to save tokens.")
+            print("\n[System Info]: Chat history getting too long. Generating summary for long-term memory...")
+            
+            history_text = ""
+            for msg in chat.get_history():
+                role = msg.role
+                if getattr(msg, "parts", None) and getattr(msg.parts[0], "text", None):
+                    history_text += f"{role.capitalize()}: {msg.parts[0].text}\n"
+
+            summary_prompt = (
+                "Summarize the following conversation in 2-3 sentences. "
+                "Focus strictly on factual information provided by the user, key decisions made, "
+                "and tasks completed. Ignore casual greetings or pleasantries.\n\n"
+                f"Conversation:\n{history_text}"
+            )
+            
+            try:
+                summary_response = client.models.generate_content(
+                    model="gemini-3.1-flash-lite",
+                    contents=summary_prompt
+                )
+                
+                if summary_response.text:
+                    chunk_id = int(time.time())
+                    memory_client.add_memory(
+                        text_chunk=summary_response.text, 
+                        source_id="chat_summary", 
+                        chunk_index=chunk_id
+                    )
+            except Exception as e:
+                print(f"[System Error]: Failed to generate or save summary: {e}")
+
+            print("[System Info]: Resetting short-term memory to save tokens.")
             chat = client.chats.create(
                 model="gemini-3.1-flash-lite",
                 config=types.GenerateContentConfig(
