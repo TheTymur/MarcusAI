@@ -5,6 +5,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from bs4 import BeautifulSoup
 
 SCOPE = ["https://mail.google.com/"]
 
@@ -200,24 +201,39 @@ class GmailClient:
                 elif name == 'in-reply-to': in_reply_to = header['value']
                 elif name == 'references': references = header['value']
             
-            body = "No Body available"
-            if 'parts' in payload:
-                for part in payload['parts']:
-                    if part['mimeType'] == 'text/plain' and 'data' in part['body']:
-                        body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                        break
-            elif 'body' in payload and 'data' in payload['body']:
-                body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
+            def extract_body(part):
+                found_text = ""
+                found_html = ""
+                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+                    found_text = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                elif part.get('mimeType') == 'text/html' and 'data' in part.get('body', {}):
+                    found_html = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                
+                if 'parts' in part:
+                    for subpart in part['parts']:
+                        sub_text, sub_html = extract_body(subpart)
+                        if sub_text: found_text += sub_text
+                        if sub_html: found_html += sub_html
+                        
+                return found_text, found_html
+
+            plain_text, html_text = extract_body(payload)
             
-            if body == "No Body available":
+            body = "No Body available"
+            if html_text:
+                soup = BeautifulSoup(html_text, "html.parser")
+                body = soup.get_text(separator="\n", strip=True)
+            elif plain_text:
+                body = plain_text
+            else:
                 body = txt.get("snippet", "No Body available")
                 
             if len(body) > 2000:
                 body = body[:2000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
                 
             cc_string = f" | Cc: {cc}" if cc else ""
-            
             return f"- ID: {email_id} | Message-ID: {message_id} | Date: {date} | From: {sender} | To: {recipient}{cc_string} | Reply-to: {reply_to} | In-Reply-To: {in_reply_to} | References: {references} | Subject: {subject} | Body:\n{body}"
+            
         except Exception as error:
             return f"An error occurred reading the email content: {error}"
 

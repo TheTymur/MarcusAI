@@ -40,3 +40,7 @@ credentials.json
 client_secret.json
 token.json
 token.pickle
+
+# Private Data
+context/
+*.sqlite3
