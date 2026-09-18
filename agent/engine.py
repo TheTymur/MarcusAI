@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from tools import multiply, GmailClient, exit_agent, get_current_date_and_time
-
+import re
 with open("context/identity.md", "r") as f:
     role = f.read()
 with open("context/user.md", "r") as f:
@@ -52,6 +52,13 @@ def start_agent():
                         print(f"\n[System Info]: API is busy (503). Retrying in {delay}s... (Attempt {attempt + 1}/{max_retries})")
                         time.sleep(delay)
                         continue
+                elif "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    if attempt < max_retries:
+                        match = re.search(r"retry in (\d+(?:\.\d+)?)s", error_msg)
+                        delay = float(match.group(1)) + 1 if match else base_delay * (2 ** attempt)
+                        print(f"\n[System Info]: Rate limit reached (429). Waiting for {delay:.2f}s... (Attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
                 print(f"\n[System Error]: Failed to generate response. {e}\n")
                 response = None
                 break
@@ -66,8 +73,17 @@ def start_agent():
                 if getattr(part, "text", None):
                     text_response += part.text
         elif getattr(response, "text", None):
-            # Fallback if the structure is different
             text_response = response.text
             
         if text_response:
             print("\nAI: " + text_response + "\n")
+
+        if len(chat.get_history()) > 10:
+            print("\n[System Info]: Chat history getting too long, resetting memory to save tokens.")
+            chat = client.chats.create(
+                model="gemini-3.1-flash-lite",
+                config=types.GenerateContentConfig(
+                    system_instruction=master_instructions,
+                    tools=available_tools
+                )
+            )

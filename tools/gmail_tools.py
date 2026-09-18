@@ -138,7 +138,7 @@ class GmailClient:
     def search_emails(self, query: str) -> str:
         """Searches for emails in the user's Gmail account based on a query."""
         try:
-            results = self.service.users().messages().list(userId="me", q=query).execute()
+            results = self.service.users().messages().list(userId="me", q=query, maxResults=5).execute()
             messages = results.get("messages", [])
 
             if not messages:
@@ -211,6 +211,9 @@ class GmailClient:
             
             if body == "No Body available":
                 body = txt.get("snippet", "No Body available")
+                
+            if len(body) > 2000:
+                body = body[:2000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
                 
             cc_string = f" | Cc: {cc}" if cc else ""
             
