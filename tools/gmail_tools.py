@@ -6,6 +6,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
+from agent.data.database_manager import Emailprocessing
 
 SCOPE = ["https://mail.google.com/"]
 
@@ -13,7 +14,25 @@ class GmailClient:
     def __init__(self):
         self.creds = None
         self.service = None
+        self.db_manager = Emailprocessing()
         self.authenticate()
+
+    def extract_body(self, part):
+                found_text = ""
+                found_html = ""
+                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+                    found_text = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                elif part.get('mimeType') == 'text/html' and 'data' in part.get('body', {}):
+                    found_html = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                
+                if 'parts' in part:
+                    for subpart in part['parts']:
+                        sub_text, sub_html = self.extract_body(subpart)
+                        if sub_text: found_text += sub_text
+                        if sub_html: found_html += sub_html
+                        
+                return found_text, found_html
+
 
     def authenticate(self):
         if os.path.exists("token.json"):
@@ -59,9 +78,29 @@ class GmailClient:
                     elif name == 'subject': subject = header['value']
                     elif name == 'date': date = header['value']
                     elif name == 'message-id': message_id = header['value']
+
+                plain_text, html_text = self.extract_body(payload)
+            
+                body = "No Body available"
+                if html_text:
+                    soup = BeautifulSoup(html_text, "html.parser")
+                    body = soup.get_text(separator="\n", strip=True)
+                elif plain_text:
+                    body = plain_text
+                else:
+                    body = txt.get("snippet", "No Body available")                
                         
+                if message_id != "Unknown":
+                    self.db_manager.process_email(clean_body=body, message_id=message_id)
+                    self.db_manager.store_email(message_id=message_id,
+                            sender=sender,
+                            recipient=recipient,
+                            subject=subject,
+                            date=date,
+                            clean_body=body)
+                
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {message_id} | Date: {date} | From: {sender} | To: {recipient} | Subject: {subject} | Snippet: {snippet}")
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {message_id} | Date: {date} | From: {sender} | To: {recipient} | Subject: {subject} | Body: {body}")
         
             return "\n".join(email_data)
 
@@ -201,23 +240,7 @@ class GmailClient:
                 elif name == 'in-reply-to': in_reply_to = header['value']
                 elif name == 'references': references = header['value']
             
-            def extract_body(part):
-                found_text = ""
-                found_html = ""
-                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
-                    found_text = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                elif part.get('mimeType') == 'text/html' and 'data' in part.get('body', {}):
-                    found_html = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                
-                if 'parts' in part:
-                    for subpart in part['parts']:
-                        sub_text, sub_html = extract_body(subpart)
-                        if sub_text: found_text += sub_text
-                        if sub_html: found_html += sub_html
-                        
-                return found_text, found_html
-
-            plain_text, html_text = extract_body(payload)
+            plain_text, html_text = self.extract_body(payload)
             
             body = "No Body available"
             if html_text:

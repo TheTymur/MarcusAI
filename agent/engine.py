@@ -120,7 +120,7 @@ def start_agent():
         if text_response:
             print("\nAI: " + text_response + "\n")
 
-        if len(chat.get_history()) > 10:
+        if len(chat.get_history()) > 40:
             print("\n[System Info]: Chat history getting too long. Generating summary for long-term memory...")
             
             history_text = ""
