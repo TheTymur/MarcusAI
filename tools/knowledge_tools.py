@@ -23,6 +23,15 @@ class VectorMemory:
         except Exception as error:
             return f"Error adding memory: {error}"
     
+    def save_user_preference(self, fact: str) -> str:
+        """
+        Saves a fact, contact, or preference about the user into long-term memory.
+        Use this tool whenever the user tells you something you should remember for the future
+        (e.g., someone's name, email, relationship to the user, or how they want things done).
+        """
+        import time
+        return self.add_memory(fact, "user_preference", int(time.time()))
+    
     def search_knowledge_base(self, query: str):
         """
         Searches the vector database for past emails, documents, or knowledge.
