@@ -44,5 +44,6 @@ token.pickle
 # Private Data
 *.sqlite3
 context/
-agent/data/
+agent/data/chroma_db/
+agent/data/agent_emails.db
 
