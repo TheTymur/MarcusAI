@@ -153,10 +153,12 @@ def start_agent():
                 print(f"[System Error]: Failed to generate or save summary: {e}")
 
             print("[System Info]: Resetting short-term memory to save tokens.")
+            recent_history = chat.get_history()[-4:] if len(chat.get_history()) >= 4 else chat.get_history()
             chat = client.chats.create(
                 model="gemini-3.1-flash-lite",
                 config=types.GenerateContentConfig(
                     system_instruction=master_instructions,
                     tools=available_tools
-                )
+                ),
+                history=recent_history
             )
