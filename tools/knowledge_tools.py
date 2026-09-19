@@ -23,7 +23,7 @@ class VectorMemory:
         except Exception as error:
             return f"Error adding memory: {error}"
     
-    def save_user_preference(self, fact: str) -> str:
+    def save_user_preference(self, fact: str):
         """
         Saves a fact, contact, or preference about the user into long-term memory.
         Use this tool whenever the user tells you something you should remember for the future

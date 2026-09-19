@@ -13,7 +13,7 @@ with open("context/user.md", "r") as f:
 with open("context/soul.md", "r") as f:
     personality = f.read()
 
-master_instructions = role + "\n" + user + "\n" + personality
+base_instructions = role + "\n" + user + "\n" + personality
 
 gmail_client = GmailClient()
 memory_client = VectorMemory()
@@ -31,16 +31,13 @@ client = genai.Client(api_key=api_key)
 
 def start_agent():
 
-    global master_instructions
-
     recent_memory = memory_client.get_recent_summaries(limit=3)
-
-    master_instructions += recent_memory
+    current_instructions = base_instructions + "\n" + recent_memory
 
     chat = client.chats.create(
         model="gemini-3.1-flash-lite",
         config=types.GenerateContentConfig(
-            system_instruction=master_instructions,
+            system_instruction=current_instructions,
             tools=available_tools
         )
     )
@@ -153,11 +150,15 @@ def start_agent():
                 print(f"[System Error]: Failed to generate or save summary: {e}")
 
             print("[System Info]: Resetting short-term memory to save tokens.")
+            
+            recent_memory = memory_client.get_recent_summaries(limit=3)
+            current_instructions = base_instructions + "\n" + recent_memory
+            
             recent_history = chat.get_history()[-4:] if len(chat.get_history()) >= 4 else chat.get_history()
             chat = client.chats.create(
                 model="gemini-3.1-flash-lite",
                 config=types.GenerateContentConfig(
-                    system_instruction=master_instructions,
+                    system_instruction=current_instructions,
                     tools=available_tools
                 ),
                 history=recent_history
