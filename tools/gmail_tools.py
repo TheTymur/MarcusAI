@@ -51,7 +51,8 @@ class GmailClient:
         self.service = build("gmail", "v1", credentials=self.creds)
 
     def read_recent_emails(self, limit: int = 5) -> str:
-        """Reads the most recent emails from the user's Gmail inbox and returns their snippets."""
+        """Reads the most recent emails from the user's Gmail inbox. 
+        IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later."""
         try:
             results = self.service.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=limit).execute()
             messages = results.get("messages", [])
@@ -100,7 +101,7 @@ class GmailClient:
                             clean_body=body)
                 
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {message_id} | Date: {date} | From: {sender} | To: {recipient} | Subject: {subject} | Body: {body}")
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {message_id} | Date: {date} | From: {sender} | To: {recipient} | Subject: {subject} | Snippet: {snippet}")
         
             return "\n".join(email_data)
 
@@ -176,7 +177,10 @@ class GmailClient:
             return f"An error occurred counting messages in label '{label_id}': {error}"
 
     def search_emails(self, query: str) -> str:
-        """Searches for emails in the user's Gmail account based on a query."""
+        """
+        Searches for emails in the user's Gmail account based on a query. 
+        IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later.
+        """
         try:
             results = self.service.users().messages().list(userId="me", q=query, maxResults=5).execute()
             messages = results.get("messages", [])
@@ -212,7 +216,8 @@ class GmailClient:
             return f"An error occurred searching for emails: {error}"
 
     def read_email_content(self, email_id: str) -> str:
-        """Reads the full content of a specific email in the user's Gmail account."""
+        """Reads the full content of a specific email in the user's Gmail account.
+        You MUST provide the 'email_id' parameter. You can find the email_id by first calling the 'read_recent_emails' or 'search_emails' tools and looking for the 'ID:' field in the results."""
         try:
             txt = self.service.users().messages().get(userId="me", id=email_id).execute()
             payload = txt.get("payload", {})
@@ -261,10 +266,20 @@ class GmailClient:
             return f"An error occurred reading the email content: {error}"
 
     def delete_message(self, email_id: str) -> str:
-        """Deletes a message from the user's Gmail account."""
+        """
+        Deletes an email or moves it to the trash. 
+        If the user asks to 'trash', 'remove', or 'delete' an email, use this tool. 
+        You MUST provide the 'email_id'. Look in the previous tool responses for the exact ID of the email you are trying to delete.
+        CRITICAL: NEVER guess or hallucinate the ID. If you don't know the exact ID, you MUST call 'read_recent_emails' or 'search_emails' FIRST and wait for the results. Do NOT call this tool and a search tool in the same turn.
+        """
         try:
-            self.service.users().messages().delete(userId="me", id=email_id).execute()
-            return f"Message '{email_id}' deleted successfully."
+            msg = self.service.users().messages().get(userId="me", id=email_id, format="metadata").execute()
+            if 'TRASH' in msg.get('labelIds', []):
+                self.service.users().messages().delete(userId="me", id=email_id).execute()
+                return f"Message '{email_id}' permanently deleted from trash successfully."
+            else:
+                self.service.users().messages().trash(userId="me", id=email_id).execute()
+                return f"Message '{email_id}' moved to trash successfully."
         except Exception as error:
             return f"An error occurred deleting the message: {error}"
 
@@ -372,7 +387,10 @@ class GmailClient:
             return f"An error occurred modifying the draft: {error}"
 
     def send_draft(self, draft_id: str) -> str:
-        """Sends an existing draft email. MUST ONLY BE USED AFTER EXPLICIT USER APPROVAL."""
+        """Sends an existing draft email. 
+        CRITICAL: MUST ONLY BE USED AFTER EXPLICIT USER APPROVAL of the draft content.
+        CRITICAL: You MUST NOT call this tool in the same turn as 'create_draft', 'create_response_draft', or 'forward_email'. You must create the draft first, show it to the user, and wait for their approval in the next turn before sending.
+        """
         try:
             draft_body = {'id': draft_id}
             draft = self.service.users().drafts().send(userId="me", body=draft_body).execute()
