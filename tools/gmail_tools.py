@@ -1,4 +1,7 @@
 import os.path
+import socket
+import ipaddress
+from urllib.parse import urlparse, unquote, parse_qs
 import base64
 from email.message import EmailMessage
 from google.auth.transport.requests import Request
@@ -7,6 +10,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
 from agent.data.database_manager import Emailprocessing
+import re, requests
 
 SCOPE = ["https://mail.google.com/"]
 
@@ -240,6 +244,7 @@ class GmailClient:
         If the user asks to 'trash', 'remove', or 'delete' an email, use this tool. 
         You MUST provide the 'email_id'. Look in the previous tool responses for the exact ID of the email you are trying to delete.
         CRITICAL: NEVER guess or hallucinate the ID. If you don't know the exact ID, you MUST call 'read_recent_emails' or 'search_emails' FIRST and wait for the results. Do NOT call this tool and a search tool in the same turn.
+        Note: To undo a deletion, use the `untrash_message` tool.
         """
         try:
             msg = self.service.users().messages().get(userId="me", id=email_id, format="metadata").execute()
@@ -253,6 +258,17 @@ class GmailClient:
                 return f"Message '{email_id}' moved to trash successfully."
         except Exception as error:
             return f"An error occurred deleting the message: {error}"
+
+    def untrash_message(self, email_id: str) -> str:
+        """
+        Removes an email from the trash and restores it to the inbox.
+        Use this tool if the user asks to undo a deletion, restore a deleted email, or move an email out of the trash.
+        """
+        try:
+            self.service.users().messages().untrash(userId="me", id=email_id).execute()
+            return f"Message '{email_id}' restored from trash successfully."
+        except Exception as error:
+            return f"An error occurred untrashing the message: {error}"
 
     def delete_draft(self, draft_id: str) -> str:
         """Deletes a draft from the user's Gmail account."""
@@ -479,3 +495,88 @@ class GmailClient:
             return f"Draft '{draft['id']}' created successfully."
         except Exception as error:
             return f"An error occurred creating the draft: {error}"
+
+
+    def _is_safe_url(self, url: str):
+        """Only allow https URLs that resolve to public IPs."""
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            return False
+        try:
+            for info in socket.getaddrinfo(parsed.hostname, None):
+                ip = ipaddress.ip_address(info[4][0])
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    return False
+        except (socket.gaierror, ValueError):
+            return False
+        return True
+
+    def unsubscribe_from_email(self, email_id: str) -> str:
+        """Unsubscribes the user from a mailing list using the email's List-Unsubscribe header.
+        This sends an email or a web request on the user's behalf, so ONLY call it after the user
+        explicitly asks to unsubscribe from that sender.
+        You MUST provide the Gmail 'email_id' (the 'ID:' field from read_recent_emails or search_emails).
+        """
+        sender = "Unknown"
+        try:
+            msg = self.service.users().messages().get(
+                userId="me",
+                id=email_id,
+                format="metadata",
+                metadataHeaders=["List-Unsubscribe", "List-Unsubscribe-Post", "From"],
+            ).execute()
+
+            headers = {
+                h["name"].lower(): h["value"]
+                for h in msg.get("payload", {}).get("headers", [])
+            }
+            sender = headers.get("from", "Unknown")
+            unsub_header = headers.get("list-unsubscribe")
+            one_click = "one-click" in headers.get("list-unsubscribe-post", "").lower()
+
+            if not unsub_header:
+                return "No unsubscribe option found in this email."
+
+            mailto_match = re.search(r"<(mailto:[^>]+)>", unsub_header, re.I)
+            http_match = re.search(r"<(https?://[^>]+)>", unsub_header, re.I)
+            http_url = http_match.group(1) if http_match else None
+
+            if http_url and one_click and self._is_safe_url(http_url):
+                try:
+                    res = requests.post(
+                        http_url,
+                        data={"List-Unsubscribe": "One-Click"},
+                        timeout=10,
+                        allow_redirects=False,
+                    )
+                    if 200 <= res.status_code < 300:
+                        return f"Sent a one-click unsubscribe request to {sender} (HTTP {res.status_code})."
+                except requests.RequestException:
+                    pass 
+
+            if mailto_match:
+                parsed = urlparse(mailto_match.group(1))
+                to_email = unquote(parsed.path)
+                params = parse_qs(parsed.query)
+
+                email_msg = EmailMessage()
+                email_msg.set_content(params.get("body", ["Unsubscribe"])[0])
+                email_msg["To"] = to_email
+                email_msg["Subject"] = params.get("subject", ["Unsubscribe"])[0]
+
+                encoded_message = base64.urlsafe_b64encode(email_msg.as_bytes()).decode()
+                self.service.users().messages().send(
+                    userId="me", body={"raw": encoded_message}
+                ).execute()
+                return f"Sent an unsubscribe email to {to_email} for {sender}."
+
+            if http_url:
+                return (
+                    f"{sender} has no one-click unsubscribe. "
+                    f"Open this link to finish unsubscribing: {http_url}"
+                )
+
+            return "Found an unsubscribe header, but it was not in a usable format."
+
+        except Exception as e:
+            return f"An error occurred unsubscribing from {sender}: {e}"

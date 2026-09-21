@@ -34,6 +34,7 @@ class VectorMemory:
         (e.g., someone's name, email, relationship to the user, or how they want things done).
         """
         import time
+        print("[System Info]: Saving user preference...")
         return self.add_memory(fact, "user_preference", int(time.time()))
     
     def search_knowledge_base(self, query: str, where_filter: Optional[dict] = None):
