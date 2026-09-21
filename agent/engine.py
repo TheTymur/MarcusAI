@@ -15,7 +15,8 @@ from tools import multiply, GmailClient, exit_agent, get_current_date_and_time, 
 LOCAL_MODEL = "lfm2:24b-a2b"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
 MAX_LOCAL_MESSAGES = 20  
-MAX_GEMINI_HISTORY = 40      
+MAX_GEMINI_HISTORY = 40   
+OFFLINE = False   
 
 with open("context/identity.md", "r") as f:
     role = f.read()
@@ -97,8 +98,7 @@ def send_with_retry(chat, text, max_retries=5, base_delay=2):
             return chat.send_message(text)
         except Exception as e:
             error_msg = str(e).lower()
-            if "connection" in error_msg or "network" in error_msg or "socket" in error_msg:
-                print(f"\n[System Error]: Connection error. {e}\n")
+            if any(term in error_msg for term in ["connection", "network", "socket", "nodename nor servname", "errno 8"]):
                 return None
             if ("503" in error_msg or "unavailable" in error_msg) and attempt < max_retries:
                 delay = base_delay * (2 ** attempt)
@@ -111,7 +111,6 @@ def send_with_retry(chat, text, max_retries=5, base_delay=2):
                 print(f"\n[System Info]: Rate limit reached (429). Waiting for {delay:.2f}s... (Attempt {attempt + 1}/{max_retries})")
                 time.sleep(delay)
                 continue
-            print(f"\n[System Error]: Failed to generate response. {e}\n")
             return None
     return None
 
@@ -125,7 +124,7 @@ def start_agent():
     gemini_chat = make_gemini_chat(current_instructions)
 
     local_messages = [{"role": "system", "content": current_instructions}]
-    local_tools, local_tool_map = get_tools_and_map([exit_agent, memory_client.search_knowledge_base, gmail_client.search_local_database])
+    local_tools, local_tool_map = get_tools_and_map([exit_agent, memory_client.search_knowledge_base, gmail_client.search_local_database, gmail_client.read_local_email, get_current_date_and_time])
 
     def commit_local(*messages):
         """Append to local history and cap its length (system prompt is always kept)."""
@@ -148,51 +147,85 @@ def start_agent():
         Returns "done" (handled) or "error".
         Nothing is added to local_messages unless the call succeeds.
         """
+        OFFLINE = True
         extra = (
             "CRITICAL INSTRUCTION: You are running in OFFLINE FALLBACK MODE because the main cloud AI is down. "
             "You currently have NO access to live email tools (you CANNOT read live emails, send emails, or delete emails). "
             "If the user asks you to take an action on live emails, you MUST NOT pretend to do it. Instead, explicitly state that you cannot perform the action because you are offline.\n\n"
-            "However, you DO have access to two local databases via your tools. You MUST USE YOUR TOOLS to search them instead of guessing:\n"
-            "1. `search_local_database(sender=..., subject=...)`: Use this to search the local SQL database. It returns EXACT METADATA: Email ID, Date/Timestamp, Sender, Recipient, and Subject. Use this if the user asks 'when was the last email received?' or 'what is the date?'. It does NOT return the email body text.\n"
-            "2. `search_knowledge_base(query=...)`: Use this to search the local vector database. It contains the FULL TEXT BODY of recent emails (chunked with their metadata headers), as well as your stored User Preferences, and past conversation summaries. Use this if the user asks 'what did the email say?' or 'what are my preferences?'.\n\n"
-            "Always inform the user that you are offline, and then rely strictly on the results returned by these two tools."
+            "However, you DO have access to four local databases/tools via your tools. You MUST USE YOUR TOOLS to search them instead of guessing:\n"
+            "1. `search_local_database`: Use this to search the local SQL database. All parameters (sender, subject) are OPTIONAL. If the user asks for 'latest emails' or 'recent emails', YOU MUST call this tool with NO parameters to retrieve the most recent entries. It returns exact metadata (Date, Sender, Subject).\n"
+            "2. `read_local_email`: Use this to read the full body text of a specific email from the local SQL database. You must provide the exact Email ID retrieved from `search_local_database`.\n"
+            "3. `search_knowledge_base`: Use this to search the local vector database for User Preferences, or past conversation summaries.\n"
+            "4. `get_current_date_and_time`: Use this to get the current system date and time if the user asks what time it is.\n\n"
+            "CRITICAL AUTONOMY RULES:\n"
+            "- NEVER ask the user for 'search criteria' or 'parameters' if they ask for recent emails. Just call `search_local_database` with no arguments.\n"
+            "- NEVER mock, fake, or simulate data. If you don't know the answer, call a tool.\n"
+            "- NEVER stall, write long disclaimers, or make excuses. Use your tools automatically and autonomously!\n"
         )
 
         user_msg = {"role": "user", "content": user_input}
         call_messages = local_messages + [{"role": "system", "content": extra}, user_msg]
 
         try:
-            response = ollama_client.chat.completions.create(
-                model=LOCAL_MODEL,
-                messages=call_messages,
-                tools=local_tools,
-            )
-            message = response.choices[0].message
+            MAX_ITERATIONS = 5
+            iterations = 0
+            
+            messages_to_commit = []
 
-            if message.tool_calls:
-                valid_call = False
-                for tool_call in message.tool_calls:
-                    func = local_tool_map.get(tool_call.function.name)
-                    if func:
-                        func(**json.loads(tool_call.function.arguments))
-                        valid_call = True
-                    else:
-                        # Hallucinated a tool it doesn't have
-                        return "error"
+            while iterations < MAX_ITERATIONS:
+                response = ollama_client.chat.completions.create(
+                    model=LOCAL_MODEL,
+                    messages=call_messages,
+                    tools=local_tools,
+                )
+                message = response.choices[0].message
                 
-                if valid_call:
-                    commit_local(user_msg)
-                    return "done"
-                return "error"
-
-            text_response = (message.content or "").strip()
-            if not text_response:
-                raise ValueError("local model returned an empty response")
-
-            commit_local(user_msg, {"role": "assistant", "content": text_response})
-            print(f"\nAI (Local): {text_response}\n")
-            sync_to_gemini(user_input, text_response)
-            return "done"
+                if message.tool_calls:
+                    message_dict = {
+                        "role": "assistant",
+                        "content": message.content,
+                        "tool_calls": [
+                            {
+                                "id": t.id,
+                                "type": "function",
+                                "function": {"name": t.function.name, "arguments": t.function.arguments}
+                            }
+                            for t in message.tool_calls
+                        ]
+                    }
+                    call_messages.append(message_dict)
+                    messages_to_commit.append(message_dict)
+                    
+                    for tool_call in message.tool_calls:
+                        func = local_tool_map.get(tool_call.function.name)
+                        if func:
+                            result = func(**json.loads(tool_call.function.arguments))
+                            tool_msg = {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_call.function.name,
+                                "content": str(result)
+                            }
+                            call_messages.append(tool_msg)
+                            messages_to_commit.append(tool_msg)
+                        else:
+                            return "error"
+                    
+                    iterations += 1
+                    continue
+                
+                text_response = (message.content or "").strip()
+                if not text_response:
+                    raise ValueError("local model returned an empty response")
+                
+                messages_to_commit.append({"role": "assistant", "content": text_response})
+                commit_local(user_msg, *messages_to_commit)
+                
+                print(f"\nAI (Local): {text_response}\n")
+                sync_to_gemini(user_input, text_response)
+                return "done"
+                
+            raise ValueError("local model exceeded maximum tool call iterations")
 
         except Exception as e:
             print(f"[System Warning]: Local model failed: {e}")
@@ -200,13 +233,14 @@ def start_agent():
 
     def run_gemini(user_input):
         nonlocal gemini_chat
+        OFFLINE = False
 
         response = send_with_retry(gemini_chat, user_input)
 
         if response is None:
-            print("[System Info]: Gemini unavailable, falling back to the local model (no email tools).")
+            print("\n[System Info]: Cloud AI unavailable. Switching to offline mode...")
             if run_local(user_input) != "done":
-                print("[System Error]: Both models failed. Please try again in a moment.\n")
+                print("[System Error]: Local model failed. Please try again in a moment.\n")
             return
 
         text_response = extract_text(response)
@@ -259,8 +293,14 @@ def start_agent():
     while True:
         try:
             user_input = input("User: ")
+
             if not user_input.strip():
                 continue
+            
+            if user_input.lower().strip() == "exit":
+                print("[System Info]: Exiting application.")
+                sys.exit(0)
+
         except (KeyboardInterrupt, EOFError):
             sys.exit(0)
 

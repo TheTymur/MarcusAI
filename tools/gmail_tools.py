@@ -105,6 +105,9 @@ class GmailClient:
 
         return self.db_manager.search_email_metadata(sender, subject)
             
+    def read_local_email(self, email_id: str):
+        """Read the full body of an email from the local SQLite database using its email_id."""
+        return self.db_manager.read_local_email(email_id)
 
     def read_recent_emails(self, limit: int = 5) -> str:
         """Reads the most recent emails from the user's Gmail inbox. 

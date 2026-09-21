@@ -73,6 +73,28 @@ class Emailprocessing:
         except Exception as e:
             return f"Database metadata search error: {e}"
 
+    def read_local_email(self, email_id: str) -> str:
+        """
+        Reads the full content of an email from the local SQL database using its ID.
+        Use this tool when you need to read the full body of a specific email.
+        
+        Args:
+            email_id (str): The unique ID of the email to read.
+        """
+        try:
+            email = self.session.query(Emails).filter(Emails.gmail_id == email_id).first()
+            if not email:
+                return f"No email found with ID {email_id}."
+            
+            body = email.body if email.body else "No body content available."
+            return (
+                f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | "
+                f"To: {email.recipient} | Subject: {email.subject}\n"
+                f"Body:\n{body}"
+            )
+        except Exception as e:
+            return f"Error reading email from local database: {e}"
+
 
     def parse_date(self, raw):
         try:
