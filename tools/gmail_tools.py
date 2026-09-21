@@ -50,6 +50,57 @@ class GmailClient:
 
         self.service = build("gmail", "v1", credentials=self.creds)
 
+    def _parse_and_cache_email(self, msg_data):
+        """Helper to parse headers/body and save to SQLite + Vector DB if new."""
+        payload = msg_data.get("payload", {})
+        headers = payload.get("headers", [])
+        
+        sender, recipient, subject, date, message_id = "Unknown", "Unknown", "No Subject", "Unknown", None
+        in_reply_to, references, cc, reply_to = "None", "None", "", "Unknown"
+        
+        for header in headers:
+            name = header['name'].lower()
+            if name == 'from': sender = header['value']
+            elif name == 'to': recipient = header['value']
+            elif name == 'cc': cc = header['value']
+            elif name == 'subject': subject = header['value']
+            elif name == 'reply-to': reply_to = header['value']
+            elif name == 'date': date = header['value']
+            elif name == 'message-id': message_id = header['value']
+            elif name == 'in-reply-to': in_reply_to = header['value']
+            elif name == 'references': references = header['value']
+
+        plain_text, html_text = self.extract_body(payload)
+        
+        body = "No Body available"
+        if html_text:
+            soup = BeautifulSoup(html_text, "html.parser")
+            body = soup.get_text(separator="\n", strip=True)
+        elif plain_text:
+            body = plain_text
+        else:
+            body = msg_data.get("snippet", "No Body available")
+            
+        # Only process embeddings if the SQL insert was successful (new email)
+        gmail_id = msg_data['id']
+        is_new = self.db_manager.store_email(message_id, gmail_id, sender, recipient, subject, date, body)
+        if is_new:
+            self.db_manager.process_email(body, message_id, gmail_id, sender, subject, date)
+
+        return {
+            "sender": sender, "recipient": recipient, "cc": cc, 
+            "subject": subject, "date": date, "message_id": message_id,
+            "in_reply_to": in_reply_to, "references": references,
+            "reply_to": reply_to, "body": body
+        }
+
+
+    def search_local_database(self, sender: str=None, subject: str=None):
+        """Search the local SQLite database for emails matching specific criteria (sender/subject)."""
+
+        return self.db_manager.search_email_metadata(sender, subject)
+            
+
     def read_recent_emails(self, limit: int = 5) -> str:
         """Reads the most recent emails from the user's Gmail inbox. 
         IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later."""
@@ -63,45 +114,10 @@ class GmailClient:
             email_data = []
             for msg in messages:
                 txt = self.service.users().messages().get(userId="me", id=msg["id"]).execute()
-                payload = txt.get("payload", {})
-                headers = payload.get("headers", [])
-                
-                sender = "Unknown"
-                recipient = "Unknown"
-                subject = "No Subject"
-                date = "Unknown"
-                message_id = "Unknown"
-                
-                for header in headers:
-                    name = header['name'].lower()
-                    if name == 'from': sender = header['value']
-                    elif name == 'to': recipient = header['value']
-                    elif name == 'subject': subject = header['value']
-                    elif name == 'date': date = header['value']
-                    elif name == 'message-id': message_id = header['value']
+                parsed = self._parse_and_cache_email(txt)
 
-                plain_text, html_text = self.extract_body(payload)
-            
-                body = "No Body available"
-                if html_text:
-                    soup = BeautifulSoup(html_text, "html.parser")
-                    body = soup.get_text(separator="\n", strip=True)
-                elif plain_text:
-                    body = plain_text
-                else:
-                    body = txt.get("snippet", "No Body available")                
-                        
-                if message_id != "Unknown":
-                    self.db_manager.process_email(clean_body=body, message_id=message_id)
-                    self.db_manager.store_email(message_id=message_id,
-                            sender=sender,
-                            recipient=recipient,
-                            subject=subject,
-                            date=date,
-                            clean_body=body)
-                
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {message_id} | Date: {date} | From: {sender} | To: {recipient} | Subject: {subject} | Snippet: {snippet}")
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: {parsed['subject']} | Snippet: {snippet}")
         
             return "\n".join(email_data)
 
@@ -191,27 +207,13 @@ class GmailClient:
             email_data = []
             for msg in messages:
                 txt = self.service.users().messages().get(userId="me", id=msg["id"]).execute()
-                payload = txt.get("payload", {})
-                headers = payload.get("headers", [])
-                
-                sender = "Unknown"
-                recipient = "Unknown"
-                subject = "No Subject"
-                date = "Unknown"
-                message_id = "Unknown"
-                
-                for header in headers:
-                    name = header['name'].lower()
-                    if name == 'from': sender = header['value']
-                    elif name == 'to': recipient = header['value']
-                    elif name == 'subject': subject = header['value']
-                    elif name == 'date': date = header['value']
-                    elif name == 'message-id': message_id = header['value']
-                        
+                parsed = self._parse_and_cache_email(txt)
+
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {message_id} | From: {sender} | To: {recipient} | Date: {date} | Subject: {subject} | Snippet: {snippet}")
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: {parsed['subject']} | Snippet: {snippet}")
         
             return "\n".join(email_data)
+
         except Exception as error:
             return f"An error occurred searching for emails: {error}"
 
@@ -220,47 +222,14 @@ class GmailClient:
         You MUST provide the 'email_id' parameter. You can find the email_id by first calling the 'read_recent_emails' or 'search_emails' tools and looking for the 'ID:' field in the results."""
         try:
             txt = self.service.users().messages().get(userId="me", id=email_id).execute()
-            payload = txt.get("payload", {})
-            headers = payload.get("headers", [])
+            parsed = self._parse_and_cache_email(txt)
             
-            sender = "Unknown"
-            recipient = "Unknown"
-            cc = ""
-            subject = "No Subject"
-            reply_to = "Unknown"
-            date = "Unknown"
-            message_id = "Unknown"
-            in_reply_to = "None"
-            references = "None"
-            
-            for header in headers:
-                name = header['name'].lower()
-                if name == 'from': sender = header['value']
-                elif name == 'to': recipient = header['value']
-                elif name == 'cc': cc = header['value']
-                elif name == 'subject': subject = header['value']
-                elif name == 'reply-to': reply_to = header['value']
-                elif name == 'date': date = header['value']
-                elif name == 'message-id': message_id = header['value']
-                elif name == 'in-reply-to': in_reply_to = header['value']
-                elif name == 'references': references = header['value']
-            
-            plain_text, html_text = self.extract_body(payload)
-            
-            body = "No Body available"
-            if html_text:
-                soup = BeautifulSoup(html_text, "html.parser")
-                body = soup.get_text(separator="\n", strip=True)
-            elif plain_text:
-                body = plain_text
-            else:
-                body = txt.get("snippet", "No Body available")
-                
+            body = parsed['body']
             if len(body) > 2000:
                 body = body[:2000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
                 
-            cc_string = f" | Cc: {cc}" if cc else ""
-            return f"- ID: {email_id} | Message-ID: {message_id} | Date: {date} | From: {sender} | To: {recipient}{cc_string} | Reply-to: {reply_to} | In-Reply-To: {in_reply_to} | References: {references} | Subject: {subject} | Body:\n{body}"
+            cc_string = f" | Cc: {parsed['cc']}" if parsed['cc'] else ""
+            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']} | Subject: {parsed['subject']} | Body:\n{body}"
             
         except Exception as error:
             return f"An error occurred reading the email content: {error}"
@@ -276,9 +245,11 @@ class GmailClient:
             msg = self.service.users().messages().get(userId="me", id=email_id, format="metadata").execute()
             if 'TRASH' in msg.get('labelIds', []):
                 self.service.users().messages().delete(userId="me", id=email_id).execute()
+                self.db_manager.delete_email(email_id)
                 return f"Message '{email_id}' permanently deleted from trash successfully."
             else:
                 self.service.users().messages().trash(userId="me", id=email_id).execute()
+                self.db_manager.delete_email(email_id)
                 return f"Message '{email_id}' moved to trash successfully."
         except Exception as error:
             return f"An error occurred deleting the message: {error}"

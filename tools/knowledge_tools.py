@@ -1,10 +1,14 @@
+from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+from typing import Optional
 import chromadb
-from chromadb import Settings
-
 class VectorMemory:
     def __init__(self, db_path="./agent/data/chroma_db"):
         self.client = chromadb.PersistentClient(path=db_path)
-        self.collection = self.client.get_or_create_collection(name="longterm_memory")
+        self.ef = OllamaEmbeddingFunction(
+            url="http://localhost:11434/api/embeddings",
+            model_name="bge-m3"
+        )
+        self.collection = self.client.get_or_create_collection(name="longterm_memory", embedding_function=self.ef)
 
     def add_memory(self, text_chunk: str, source_id: str, chunk_index: int) -> str:
         """Adds a text chunk to the vector memory."""
@@ -32,7 +36,7 @@ class VectorMemory:
         import time
         return self.add_memory(fact, "user_preference", int(time.time()))
     
-    def search_knowledge_base(self, query: str):
+    def search_knowledge_base(self, query: str, where_filter: Optional[dict] = None):
         """
         Searches the vector database for past emails, documents, or knowledge.
         Use this tool when you need to recall previous interactions, retrieve standard 
@@ -40,11 +44,16 @@ class VectorMemory:
         """
 
         try: 
-            results = self.collection.query(
-                query_texts=[query],
-                n_results=3
-            )
+            query_args = {
+                "query_texts": [query],
+                "n_results": 3
+            }
+
+            if where_filter:
+                query_args["where"] = where_filter
             
+            results = self.collection.query(**query_args)
+
             if not results["documents"] or not results["documents"][0]:
                 return "No relevant information found in memory."
             

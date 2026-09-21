@@ -11,3 +11,4 @@ google-auth-oauthlib
 chromadb
 bs4
 sqlalchemy
+ollama

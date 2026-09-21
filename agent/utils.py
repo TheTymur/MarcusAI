@@ -6,11 +6,11 @@ def generate_openai_tool_schema(func: Callable) -> dict:
     Reads a Python function and automatically generates the OpenAI-compatible 
     JSON schema required for tool calling.
     """
-    # 1. Get the function's name and docstring (description)
+
     name = func.__name__
     description = inspect.getdoc(func) or f"Executes the {name} function."
     
-    # 2. Get the function's arguments and type hints
+
     sig = inspect.signature(func)
     parameters = {
         "type": "object",
@@ -18,12 +18,12 @@ def generate_openai_tool_schema(func: Callable) -> dict:
         "required": []
     }
     
-    # 3. Loop through the arguments to build the parameters dictionary
+
     for param_name, param in sig.parameters.items():
         if param_name == 'self':
             continue # Skip 'self' for class methods
             
-        param_type = "string" # Default to string
+        param_type = "string"
         if param.annotation == int:
             param_type = "integer"
         elif param.annotation == bool:
@@ -38,7 +38,7 @@ def generate_openai_tool_schema(func: Callable) -> dict:
         if param.default == inspect.Parameter.empty:
             parameters["required"].append(param_name)
             
-    # 4. Return the strict format that the OpenAI API expects
+    # 4. Return the strict format 
     return {
         "type": "function",
         "function": {
