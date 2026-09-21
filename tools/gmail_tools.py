@@ -12,7 +12,8 @@ from bs4 import BeautifulSoup
 from agent.data.database_manager import Emailprocessing
 import re, requests
 
-SCOPE = ["https://mail.google.com/"]
+SCOPE = ["https://mail.google.com/",
+        "https://www.googleapis.com/auth/gmail.settings.basic"]
 
 class GmailClient:
     def __init__(self):
@@ -580,3 +581,62 @@ class GmailClient:
 
         except Exception as e:
             return f"An error occurred unsubscribing from {sender}: {e}"
+
+
+    def block_sender(self, sender: str):
+        """Blocks an email sender by creating a filter to move all their emails to the trash.
+
+        Args:
+            sender (str): The email address to block.
+        """
+
+        filter_config = {
+            "criteria": {
+                "from": sender
+            },
+            "action": {
+                "addLabelIds": ["TRASH"],
+                "removeLabelIds": ["INBOX"]
+            }
+        }
+
+        try:
+            self.service.users().settings().filters().create(userId="me", body=filter_config).execute()
+            return f"Successfully blocked {sender}."
+        except Exception as e:
+            return f"An error occurred blocking {sender}: {e}"
+        
+
+    def unblock_sender(self, sender: str) -> str:
+            """Unblocks an email sender by finding and removing their specific filter.
+
+            Args:
+                sender (str): The email address to unblock.
+            """
+            try:
+                results = self.service.users().settings().filters().list(userId="me").execute()
+                filters = results.get('filter', [])
+                
+                if not filters:
+                    return "No block filters found in your account."
+                    
+                filters_deleted = 0
+                
+                for f in filters:
+                    criteria = f.get('criteria', {})
+                    from_email = criteria.get('from', '')
+                    
+                    if sender.lower() in from_email.lower():
+                        filter_id = f['id']
+                        
+                        self.service.users().settings().filters().delete(userId="me", id=filter_id).execute()
+                        filters_deleted += 1
+                        
+                if filters_deleted > 0:
+                    return f"Successfully unblocked {sender} by removing {filters_deleted} filter(s)."
+                else:
+                    return f"Could not find any active block filter for {sender}."
+                    
+            except Exception as e:
+                return f"An error occurred unblocking {sender}: {e}"
+            

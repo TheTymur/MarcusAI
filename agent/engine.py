@@ -34,7 +34,7 @@ available_tools = [multiply, gmail_client.read_recent_emails, gmail_client.creat
     gmail_client.search_emails, gmail_client.delete_message, gmail_client.delete_draft, gmail_client.list_drafts, exit_agent,
     gmail_client.create_draft, gmail_client.modify_draft, gmail_client.send_draft, gmail_client.read_email_content, get_current_date_and_time,
     gmail_client.create_response_draft, gmail_client.forward_email, memory_client.search_knowledge_base, memory_client.save_user_preference,
-    gmail_client.search_local_database, gmail_client.unsubscribe_from_email, gmail_client.untrash_message]
+    gmail_client.search_local_database, gmail_client.unsubscribe_from_email, gmail_client.block_sender, gmail_client.unblock_sender]
 
 load_dotenv()
 gemini_api_key = os.getenv("API_KEY_GEMINI")
