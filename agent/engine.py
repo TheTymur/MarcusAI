@@ -16,7 +16,6 @@ LOCAL_MODEL = "lfm2:24b-a2b"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
 MAX_LOCAL_MESSAGES = 20  
 MAX_GEMINI_HISTORY = 40   
-OFFLINE = False   
 
 with open("context/identity.md", "r") as f:
     role = f.read()
@@ -147,7 +146,7 @@ def start_agent():
         Returns "done" (handled) or "error".
         Nothing is added to local_messages unless the call succeeds.
         """
-        OFFLINE = True
+
         extra = (
             "CRITICAL INSTRUCTION: You are running in OFFLINE FALLBACK MODE because the main cloud AI is down. "
             "You currently have NO access to live email tools (you CANNOT read live emails, send emails, or delete emails). "
@@ -233,7 +232,6 @@ def start_agent():
 
     def run_gemini(user_input):
         nonlocal gemini_chat
-        OFFLINE = False
 
         response = send_with_retry(gemini_chat, user_input)
 
