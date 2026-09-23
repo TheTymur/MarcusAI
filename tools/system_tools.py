@@ -1,4 +1,3 @@
-import sys
 import datetime
 
 
@@ -8,8 +7,12 @@ class System:
         You MUST provide a 'message' argument with your final goodbye message to the user.
         Do NOT use this tool unless the user explicitly tells you to exit.
         """
+        import os
+        import signal
         print(f"\nAI: {message}\n")
-        sys.exit()
+        # Terminating parental process to exit main agent
+        os.kill(os.getppid(), signal.SIGTERM)
+        return "Exiting..."
 
 
     def get_current_date_and_time(self):

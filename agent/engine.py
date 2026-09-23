@@ -14,7 +14,7 @@ from tools import VectorMemory
 from agent.mcp_client import MCPClientManager
 
 LOCAL_MODEL = "lfm2:24b-a2b"
-GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 MAX_LOCAL_MESSAGES = 20  
 MAX_GEMINI_HISTORY = 40   
 
@@ -27,7 +27,6 @@ with open("context/soul.md", "r") as f:
 
 base_instructions = role + "\n" + user + "\n" + personality
 
-# Tools are now provided dynamically via the MCP client
 memory_client = VectorMemory()
 
 load_dotenv()
@@ -90,9 +89,6 @@ async def send_with_retry(chat, text, max_retries=5, base_delay=2):
         try:
             return await chat.send_message(text)
         except Exception as e:
-            import traceback
-            print(f"[DEBUG Gemini Exception]: {repr(e)}")
-            traceback.print_exc()
             error_msg = str(e).lower()
             if any(term in error_msg for term in ["connection", "network", "socket", "nodename nor servname", "errno 8"]):
                 return None
@@ -298,7 +294,8 @@ async def start_agent():
                     print("[System Info]: Exiting application.")
                     break
 
-            except (KeyboardInterrupt, EOFError):
+            except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
+                print("\n[System Info]: Exiting application.")
                 break
 
             await run_gemini(user_input)
