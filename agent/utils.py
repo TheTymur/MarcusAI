@@ -28,6 +28,10 @@ def generate_openai_tool_schema(func: Callable) -> dict:
             param_type = "integer"
         elif param.annotation == bool:
             param_type = "boolean"
+        elif param.annotation == dict:
+            param_type = "object"
+        elif param.annotation == list:
+            param_type = "array"
             
         parameters["properties"][param_name] = {
             "type": param_type,

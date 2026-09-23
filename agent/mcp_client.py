@@ -17,6 +17,7 @@ def make_tool_callable(session_id, tool_info):
         if ptype == "integer": py_type = "int"
         elif ptype == "boolean": py_type = "bool"
         elif ptype == "array": py_type = "list"
+        elif ptype == "object": py_type = "dict"
         
         if p_name in required:
             args_list.append(f"{p_name}: {py_type}")
