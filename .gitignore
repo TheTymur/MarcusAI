@@ -45,4 +45,3 @@ token.pickle
 *.sqlite3
 context/
 agent/data/
-

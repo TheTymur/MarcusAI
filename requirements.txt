@@ -10,3 +10,7 @@ google-auth-httplib2
 google-auth-oauthlib
 chromadb
 bs4
+sqlalchemy
+ollama
+fastmcp
+mcp
