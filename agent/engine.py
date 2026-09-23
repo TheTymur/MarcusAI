@@ -10,7 +10,7 @@ from google.genai import types
 from openai import OpenAI
 
 from agent.utils import get_tools_and_map
-from tools import multiply, GmailClient, exit_agent, get_current_date_and_time, VectorMemory
+from tools import multiply, GmailClient, System, VectorMemory
 
 LOCAL_MODEL = "lfm2:24b-a2b"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
@@ -28,13 +28,14 @@ base_instructions = role + "\n" + user + "\n" + personality
 
 gmail_client = GmailClient()
 memory_client = VectorMemory()
+system_client = System()
 
 available_tools = [multiply, gmail_client.read_recent_emails, gmail_client.create_label, gmail_client.apply_label,
     gmail_client.delete_label, gmail_client.remove_label, gmail_client.list_labels, gmail_client.count_messages_in_label,
-    gmail_client.search_emails, gmail_client.delete_message, gmail_client.delete_draft, gmail_client.list_drafts, exit_agent,
-    gmail_client.create_draft, gmail_client.modify_draft, gmail_client.send_draft, gmail_client.read_email_content, get_current_date_and_time,
+    gmail_client.search_emails, gmail_client.delete_message, gmail_client.delete_draft, gmail_client.list_drafts, system_client.exit_agent,
+    gmail_client.create_draft, gmail_client.modify_draft, gmail_client.send_draft, gmail_client.read_email_content, system_client.get_current_date_and_time,
     gmail_client.create_response_draft, gmail_client.forward_email, memory_client.search_knowledge_base, memory_client.save_user_preference,
-    gmail_client.search_local_database, gmail_client.unsubscribe_from_email, gmail_client.block_sender, gmail_client.unblock_sender]
+    gmail_client.search_local_database, gmail_client.unsubscribe_from_email, gmail_client.block_sender, gmail_client.unblock_sender, system_client.deep_system_diagnostic]
 
 load_dotenv()
 gemini_api_key = os.getenv("API_KEY_GEMINI")
@@ -76,16 +77,16 @@ def is_plain_user_turn(content):
     return all(getattr(p, "function_response", None) is None for p in content.parts)
 
 
-def safe_trim(history, keep=4):
+def safe_trim(history, keep=8):
     """
-    Keep roughly the last `keep` turns, but start on a plain user turn so we never
+    Keep at least the last `keep` turns, but start on a plain user turn so we never
     begin with a model turn or split a function_call / function_response pair.
-    Returns [] (fresh chat) if no safe start exists in the window.
+    Returns [] (fresh chat) if no safe start exists in the history.
     """
     history = list(history)
     if len(history) <= keep:
         return history
-    for i in range(len(history) - keep, len(history)):
+    for i in range(len(history) - keep, -1, -1):
         if is_plain_user_turn(history[i]):
             return history[i:]
     return []
@@ -123,7 +124,7 @@ def start_agent():
     gemini_chat = make_gemini_chat(current_instructions)
 
     local_messages = [{"role": "system", "content": current_instructions}]
-    local_tools, local_tool_map = get_tools_and_map([exit_agent, memory_client.search_knowledge_base, gmail_client.search_local_database, gmail_client.read_local_email, get_current_date_and_time])
+    local_tools, local_tool_map = get_tools_and_map([system_client.exit_agent, memory_client.search_knowledge_base, gmail_client.search_local_database, gmail_client.read_local_email, system_client.get_current_date_and_time])
 
     def commit_local(*messages):
         """Append to local history and cap its length (system prompt is always kept)."""
@@ -286,7 +287,7 @@ def start_agent():
         except Exception as e:
             print(f"[System Error]: Failed to generate or save summary: {e}")
 
-        gemini_chat = make_gemini_chat(current_instructions, history=safe_trim(full_history, keep=4))
+        gemini_chat = make_gemini_chat(current_instructions, history=safe_trim(full_history, keep=8))
 
     while True:
         try:
