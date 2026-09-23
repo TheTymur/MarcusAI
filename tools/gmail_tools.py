@@ -86,7 +86,6 @@ class GmailClient:
         else:
             body = msg_data.get("snippet", "No Body available")
             
-        # Only process embeddings if the SQL insert was successful (new email)
         gmail_id = msg_data['id']
         is_new = self.db_manager.store_email(message_id, gmail_id, sender, recipient, subject, date, body)
         if is_new:
@@ -502,7 +501,7 @@ class GmailClient:
 
 
     def _is_safe_url(self, url: str):
-        """Only allow https URLs that resolve to public IPs."""
+        """Only allow https URLs that resolve to public IPs. Anti Server-Side Request Forgery (SSRF)."""
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.hostname:
             return False

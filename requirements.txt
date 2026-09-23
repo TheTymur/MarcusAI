@@ -12,3 +12,5 @@ chromadb
 bs4
 sqlalchemy
 ollama
+fastmcp
+mcp
