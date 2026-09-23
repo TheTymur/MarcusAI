@@ -86,7 +86,6 @@ class GmailClient:
         else:
             body = msg_data.get("snippet", "No Body available")
             
-        # Only process embeddings if the SQL insert was successful (new email)
         gmail_id = msg_data['id']
         is_new = self.db_manager.store_email(message_id, gmail_id, sender, recipient, subject, date, body)
         if is_new:
@@ -105,6 +104,9 @@ class GmailClient:
 
         return self.db_manager.search_email_metadata(sender, subject)
             
+    def read_local_email(self, email_id: str):
+        """Read the full body of an email from the local SQLite database using its email_id."""
+        return self.db_manager.read_local_email(email_id)
 
     def read_recent_emails(self, limit: int = 5) -> str:
         """Reads the most recent emails from the user's Gmail inbox. 
@@ -499,7 +501,7 @@ class GmailClient:
 
 
     def _is_safe_url(self, url: str):
-        """Only allow https URLs that resolve to public IPs."""
+        """Only allow https URLs that resolve to public IPs. Anti Server-Side Request Forgery (SSRF)."""
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.hostname:
             return False
@@ -605,38 +607,63 @@ class GmailClient:
             return f"Successfully blocked {sender}."
         except Exception as e:
             return f"An error occurred blocking {sender}: {e}"
-        
+
+    def list_blocked_senders(self):
+        """Lists all blocked senders in the user's Gmail account."""
+
+
+        try:
+            results = self.service.users().settings().filters().list(userId="me").execute()
+            filters = results.get('filter', [])
+            
+            if not filters:
+                return "No block filters found in your account."
+                    
+            blocked_senders = []
+                
+            for f in filters:
+                criteria = f.get('criteria', {})
+                from_email = criteria.get('from', '')
+                
+                if from_email:
+                    blocked_senders.append(from_email)
+            
+            return blocked_senders
+        except Exception as e:
+            return f"An error occurred listing blocked senders: {e}"
+
 
     def unblock_sender(self, sender: str) -> str:
-            """Unblocks an email sender by finding and removing their specific filter.
+        """Unblocks an email sender by finding and removing their specific filter.
 
-            Args:
-                sender (str): The email address to unblock.
-            """
-            try:
-                results = self.service.users().settings().filters().list(userId="me").execute()
-                filters = results.get('filter', [])
+        Args:
+            sender (str): The email address to unblock.
+        """
+
+        try:
+            results = self.service.users().settings().filters().list(userId="me").execute()
+            filters = results.get('filter', [])
+            
+            if not filters:
+                return "No block filters found in your account."
+                    
+            filters_deleted = 0
                 
-                if not filters:
-                    return "No block filters found in your account."
+            for f in filters:
+                criteria = f.get('criteria', {})
+                from_email = criteria.get('from', '')
                     
-                filters_deleted = 0
-                
-                for f in filters:
-                    criteria = f.get('criteria', {})
-                    from_email = criteria.get('from', '')
-                    
-                    if sender.lower() in from_email.lower():
-                        filter_id = f['id']
+                if sender.lower() in from_email.lower():
+                    filter_id = f['id']
                         
-                        self.service.users().settings().filters().delete(userId="me", id=filter_id).execute()
-                        filters_deleted += 1
+                    self.service.users().settings().filters().delete(userId="me", id=filter_id).execute()
+                    filters_deleted += 1
                         
-                if filters_deleted > 0:
-                    return f"Successfully unblocked {sender} by removing {filters_deleted} filter(s)."
-                else:
-                    return f"Could not find any active block filter for {sender}."
+            if filters_deleted > 0:
+                return f"Successfully unblocked {sender} by removing {filters_deleted} filter(s)."
+            else:
+                return f"Could not find any active block filter for {sender}."
                     
-            except Exception as e:
-                return f"An error occurred unblocking {sender}: {e}"
+        except Exception as e:
+            return f"An error occurred unblocking {sender}: {e}"
             
