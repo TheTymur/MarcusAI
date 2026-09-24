@@ -40,8 +40,14 @@ credentials.json
 client_secret.json
 token.json
 token.pickle
+token_*
 
 # Private Data
 *.sqlite3
+*.sqlite
+*.db
+*.db3
+*.s3db
+*.sl3
 context/
 agent/data/

@@ -14,7 +14,7 @@ from tools import VectorMemory
 from agent.mcp_client import MCPClientManager
 
 LOCAL_MODEL = "lfm2:24b-a2b"
-GEMINI_MODEL = "gemini-3.1-flash-lite"
+GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 MAX_LOCAL_MESSAGES = 20  
 MAX_GEMINI_HISTORY = 40   
 
@@ -38,9 +38,11 @@ ollama_client = AsyncOpenAI(
     base_url="http://localhost:11434/v1",
 )
 
-def make_gemini_chat(instructions, tools, history=None):
+def make_gemini_chat(instructions, tools, history=None, model=None):
+    if model is None:
+        model = GEMINI_MODELS[0]
     return gemini_client.aio.chats.create(
-        model=GEMINI_MODEL,
+        model=model,
         config=types.GenerateContentConfig(
             system_instruction=instructions,
             tools=tools,
@@ -84,15 +86,20 @@ def safe_trim(history, keep=8):
     return []
 
 
-async def send_with_retry(chat, text, max_retries=5, base_delay=2): 
+async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60): 
     for attempt in range(max_retries + 1):
         try:
-            return await chat.send_message(text)
+            return await asyncio.wait_for(chat.send_message(text), timeout=timeout)
+        except asyncio.TimeoutError:
+            print(f"\n[System Info]: Request timed out after {timeout}s. (Attempt {attempt + 1}/{max_retries})")
+            if attempt < max_retries:
+                continue
+            return None
         except Exception as e:
             error_msg = str(e).lower()
             if any(term in error_msg for term in ["connection", "network", "socket", "nodename nor servname", "errno 8"]):
                 return None
-            if ("503" in error_msg or "unavailable" in error_msg) and attempt < max_retries:
+            if ("503" in error_msg) and attempt < max_retries:
                 delay = base_delay * (2 ** attempt)
                 print(f"\n[System Info]: API is busy (503). Retrying in {delay}s... (Attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(delay)
@@ -119,7 +126,8 @@ async def start_agent():
         recent_memory = memory_client.get_recent_summaries(limit=3)
         current_instructions = base_instructions + "\n" + recent_memory
 
-        gemini_chat = make_gemini_chat(current_instructions, available_tools)
+        current_model_index = 0
+        gemini_chat = make_gemini_chat(current_instructions, available_tools, model=GEMINI_MODELS[current_model_index])
 
         local_messages = [{"role": "system", "content": current_instructions}]
         local_tools, local_tool_map = get_tools_and_map(mcp_wrappers)
@@ -131,11 +139,11 @@ async def start_agent():
                 del local_messages[1:1 + overflow]
 
         def sync_to_gemini(user_input, text_response):
-            nonlocal gemini_chat
+            nonlocal gemini_chat, current_model_index
             history = list(gemini_chat.get_history())
             history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_input)]))
             history.append(types.Content(role="model", parts=[types.Part.from_text(text=text_response)]))
-            gemini_chat = make_gemini_chat(current_instructions, available_tools, history=history)
+            gemini_chat = make_gemini_chat(current_instructions, available_tools, history=history, model=GEMINI_MODELS[current_model_index])
 
         async def run_local(user_input):
             extra = (
@@ -226,9 +234,27 @@ async def start_agent():
                 return "error"
 
         async def run_gemini(user_input):
-            nonlocal gemini_chat
+            nonlocal gemini_chat, current_model_index
 
-            response = await send_with_retry(gemini_chat, user_input)
+            if current_model_index != 0:
+                current_model_index = 0
+                gemini_chat = make_gemini_chat(current_instructions, available_tools, history=list(gemini_chat.get_history()), model=GEMINI_MODELS[0])
+
+            previous_history = list(gemini_chat.get_history())
+            response = None
+
+            for _ in range(len(GEMINI_MODELS)):
+                response = await send_with_retry(gemini_chat, user_input, max_retries=2)
+                if response is not None:
+                    break
+                
+                if current_model_index < len(GEMINI_MODELS) - 1:
+                    current_model_index += 1
+                    new_model = GEMINI_MODELS[current_model_index]
+                    print(f"\n[System Info]: Model failed. Switching to {new_model}...")
+                    gemini_chat = make_gemini_chat(current_instructions, available_tools, history=previous_history, model=new_model)
+                else:
+                    break
 
             if response is None:
                 print("\n[System Info]: Cloud AI unavailable. Switching to offline mode...")
@@ -249,7 +275,7 @@ async def start_agent():
             await maybe_summarize_and_trim()
 
         async def maybe_summarize_and_trim():
-            nonlocal gemini_chat
+            nonlocal gemini_chat, current_model_index
             full_history = list(gemini_chat.get_history())
             if len(full_history) <= MAX_GEMINI_HISTORY:
                 return
@@ -268,7 +294,7 @@ async def start_agent():
 
             try:
                 summary_response = await gemini_client.aio.models.generate_content(
-                    model=GEMINI_MODEL,
+                    model=GEMINI_MODELS[current_model_index],
                     contents=summary_prompt,
                     config=types.GenerateContentConfig(tools=[]),
                 )
@@ -281,7 +307,7 @@ async def start_agent():
             except Exception as e:
                 print(f"[System Error]: Failed to generate or save summary: {e}")
 
-            gemini_chat = make_gemini_chat(current_instructions, available_tools, history=safe_trim(full_history, keep=8))
+            gemini_chat = make_gemini_chat(current_instructions, available_tools, history=safe_trim(full_history, keep=8), model=GEMINI_MODELS[current_model_index])
 
         while True:
             try:

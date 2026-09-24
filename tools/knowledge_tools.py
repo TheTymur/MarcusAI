@@ -42,6 +42,7 @@ class VectorMemory:
         Searches the vector database for past emails, documents, or knowledge.
         Use this tool when you need to recall previous interactions, retrieve standard 
         operating procedures, or find context that is not in the current chat history.
+        To filter by email account, you can pass a where_filter like {"account": "work"} or {"account": "personal"}.
         """
 
         try: 

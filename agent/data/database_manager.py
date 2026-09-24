@@ -6,8 +6,6 @@ from email.utils import parsedate_to_datetime
 from datetime import timezone
 from typing import Optional
  
-#TODO: hybrid search
-
 Base = declarative_base()
 memory_client = VectorMemory()
 
@@ -22,6 +20,7 @@ class Emails(Base):
     recipient = Column(String)
     subject = Column(String)
     date = Column(DateTime)
+    account_name = Column(Text)
 
     body = Column(Text)
 
@@ -38,7 +37,7 @@ class Emailprocessing:
 
 
 
-    def search_email_metadata(self, sender: Optional[str] = None, subject: Optional[str] = None, limit: int = 5) -> str:
+    def search_email_metadata(self, sender: Optional[str] = None, subject: Optional[str] = None, limit: int = 5, account: Optional[str] = None) -> str:
         """
         Searches the local SQL database for emails by sender or subject.
         Use this tool when you need to find exact metadata, count emails from a specific person, 
@@ -56,6 +55,8 @@ class Emailprocessing:
                 query = query.filter(Emails.sender.ilike(f"%{sender}%"))
             if subject:
                 query = query.filter(Emails.subject.ilike(f"%{subject}%"))
+            if account:
+                query = query.filter(Emails.account_name.ilike(f"%{account}%"))
                 
             
             results = query.order_by(Emails.date.desc()).limit(limit).all()
@@ -66,7 +67,7 @@ class Emailprocessing:
             formatted = []
             for email in results:
                 formatted.append(
-                    f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | To: {email.recipient} | Subject: {email.subject}"
+                    f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | To: {email.recipient} | Subject: {email.subject} | Account: {email.account_name}"
                 )
             return "\n".join(formatted)
             
@@ -131,26 +132,26 @@ class Emailprocessing:
         return [c for c in chunks if c]
 
 
-    def process_email(self, clean_body, message_id, gmail_id, sender, subject, date):
+    def process_email(self, clean_body, message_id, gmail_id, sender, subject, date, account):
         chunks = self.chunker(clean_body, chunk_size=500)
         if not chunks:
             return
 
         documents = []
         for chunk in chunks:
-            header = f"Email ID: {gmail_id}\nSender: {sender}\nSubject: {subject}\nDate: {date}\n\n"
+            header = f"Email ID: {gmail_id}\nSender: {sender}\nSubject: {subject}\nDate: {date}\nAccount: {account}\n\n"
             documents.append(header + chunk)
 
         memory_client.collection.upsert(
             documents=documents,
             metadatas=[
-                {"source": "email", "gmail_id": gmail_id, "chunk": i}
+                {"source": "email", "gmail_id": gmail_id, "chunk": i, "account": account}
                 for i in range(len(chunks))
             ],
             ids=[f"{gmail_id}_chunk{i}" for i in range(len(chunks))]
         )
 
-    def store_email(self, message_id, gmail_id, sender, recipient, subject, date, clean_body):
+    def store_email(self, message_id, gmail_id, sender, recipient, subject, date, clean_body, account):
         try:
             new_email = Emails(
                 message_id=message_id,
@@ -159,7 +160,8 @@ class Emailprocessing:
                 recipient=recipient,
                 subject=subject,
                 date=self.parse_date(date),
-                body=clean_body
+                body=clean_body,
+                account_name=account
             )
 
             self.session.add(new_email)
