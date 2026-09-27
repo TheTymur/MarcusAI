@@ -96,6 +96,8 @@ async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60):
                 continue
             return None
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             error_msg = str(e).lower()
             if any(term in error_msg for term in ["connection", "network", "socket", "nodename nor servname", "errno 8"]):
                 return None
@@ -268,9 +270,16 @@ async def start_agent():
                 print("\nAI (Gemini): " + text_response + "\n")
                 commit_local({"role": "assistant", "content": text_response})
             else:
-                finish_reason = getattr(response.candidates[0], "finish_reason", "UNKNOWN") if getattr(response, "candidates", None) else "UNKNOWN"
-                print(f"\n[System Warning]: Gemini returned an empty text response. Finish reason: {finish_reason}")
-                print(f"Raw response: {response}\n")
+                has_function_calls = False
+                if getattr(response, "candidates", None) and response.candidates[0].content.parts:
+                    has_function_calls = any(p.function_call for p in response.candidates[0].content.parts)
+                
+                if has_function_calls:
+                    print("\n[System Warning]: The AI reached its maximum internal loop limit for tool calls and was stopped to prevent an infinite loop. Please provide more specific instructions or increase limits.")
+                else:
+                    finish_reason = getattr(response.candidates[0], "finish_reason", "UNKNOWN") if getattr(response, "candidates", None) else "UNKNOWN"
+                    print(f"\n[System Warning]: Gemini returned an empty text response. Finish reason: {finish_reason}")
+                    print(f"Raw response: {response}\n")
 
             await maybe_summarize_and_trim()
 

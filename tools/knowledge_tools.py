@@ -39,12 +39,11 @@ class VectorMemory:
         print("[System Info]: Saving user preference...")
         return self.add_memory(fact, "user_preference", int(time.time()))
     
-    def search_knowledge_base(self, query: str = Field(description="The query to search the knowledge base for."), where_filter: Optional[dict] = Field(None, description="Optional metadata filter dictionary.")):
+    def search_knowledge_base(self, query: str = Field(description="The query to search the knowledge base for."), where_account: str = Field(None, description="Optional account filter, e.g. 'work' or 'personal'.")) -> str:
         """
         Searches the vector database for past emails, documents, or knowledge.
         Use this tool when you need to recall previous interactions, retrieve standard 
         operating procedures, or find context that is not in the current chat history.
-        To filter by email account, you can pass a where_filter like {"account": "work"} or {"account": "personal"}.
         """
 
         try: 
@@ -53,8 +52,8 @@ class VectorMemory:
                 "n_results": 3
             }
 
-            if where_filter:
-                query_args["where"] = where_filter
+            if where_account:
+                query_args["where"] = {"account": where_account}
             
             results = self.collection.query(**query_args)
 

@@ -2,9 +2,10 @@ import datetime
 from pydantic import Field
 class System:
     def exit_agent(self, message: str = Field(description="Your final goodbye message to the user.")):
-        """Exits the agent if the user told it to exit or if the user is done with the agent. 
+        """Exits the agent and terminates the program.
         You MUST provide a 'message' argument with your final goodbye message to the user.
-        Do NOT use this tool unless the user explicitly tells you to exit.
+        CRITICAL RULE: Do NOT use this tool unless the user EXPLICITLY says 'bye', 'goodbye', 'exit', 'quit', OR answers 'yes' when you ask if that is all. 
+        Never assume a conversation is over just because the user asks you to remember something for the future or if they say 'okay'.
         """
         import os
         import signal

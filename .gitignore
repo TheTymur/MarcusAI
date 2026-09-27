@@ -51,4 +51,4 @@ token_*
 *.sl3
 context/
 agent/data/
-# tools_schema.json
+tools_schema.json

@@ -78,7 +78,13 @@ class GmailClient:
             elif name == 'cc': cc = header['value']
             elif name == 'subject': subject = header['value']
             elif name == 'reply-to': reply_to = header['value']
-            elif name == 'date': date = header['value']
+            elif name == 'date': 
+                import email.utils
+                try:
+                    dt = email.utils.parsedate_to_datetime(header['value'])
+                    date = dt.astimezone().strftime('%Y-%m-%d %H:%M')
+                except Exception:
+                    date = header['value']
             elif name == 'message-id': message_id = header['value']
             elif name == 'in-reply-to': in_reply_to = header['value']
             elif name == 'references': references = header['value']
@@ -99,11 +105,13 @@ class GmailClient:
         if is_new:
             self.db_manager.process_email(body, message_id, gmail_id, sender, subject, date, account)
 
+        labels = msg_data.get("labelIds", [])
+
         return {
             "sender": sender, "recipient": recipient, "cc": cc, 
             "subject": subject, "date": date, "message_id": message_id,
             "in_reply_to": in_reply_to, "references": references,
-            "reply_to": reply_to, "body": body
+            "reply_to": reply_to, "body": body, "labels": labels
         }
 
     def target_account(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")):
@@ -121,6 +129,7 @@ class GmailClient:
         Both `sender` and `subject` use partial matching (case-insensitive substring match). 
         If both `sender` and `subject` are provided, they are combined with a logical AND.
         They are both optional.
+        CRITICAL: Do NOT use this tool if the user asks you to "read recent emails", "check my inbox", or "read my mail". For checking live/new emails, you MUST use 'read_recent_emails' instead. Only use this database tool when specifically searching for past historical records.
         VALID ACCOUNTS: 'personal' (default), 'work'."""
 
         return self.db_manager.search_email_metadata(sender, subject)
@@ -152,7 +161,8 @@ class GmailClient:
                 parsed = self._parse_and_cache_email(txt, account)
 
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
+                labels_str = ", ".join(parsed['labels']) if parsed['labels'] else "None"
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
         
             return "\n".join(email_data)
 
@@ -290,17 +300,18 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred counting messages in label '{label_id}': {error}"
 
-    def search_emails(self, query: str = Field(description='The search query string (like in Gmail search bar).'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+    def search_emails(self, query: str = Field(description='The search query string (like in Gmail search bar).'), limit: int = Field(5, description='The maximum number of emails to return.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
         Searches for emails in the user's Gmail account based on a query. 
         IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later.
         Args:
             query (str): The search query string (like in Gmail search bar).
+            limit (int): The maximum number of emails to return.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
             target_service = self.target_account(account)
-            results = target_service.users().messages().list(userId="me", q=query, maxResults=5).execute()
+            results = target_service.users().messages().list(userId="me", q=query, maxResults=limit).execute()
             messages = results.get("messages", [])
 
             if not messages:
@@ -312,7 +323,8 @@ class GmailClient:
                 parsed = self._parse_and_cache_email(txt, account)
 
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
+                labels_str = ", ".join(parsed['labels']) if parsed['labels'] else "None"
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
         
             return "\n".join(email_data)
 
@@ -337,7 +349,8 @@ class GmailClient:
                 body = body[:2000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
                 
             cc_string = f" | Cc: {parsed['cc']}" if parsed['cc'] else ""
-            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Body:\n<email_body>\n{body}\n</email_body>"
+            labels_str = ", ".join(parsed['labels']) if parsed['labels'] else "None"
+            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Body:\n<email_body>\n{body}\n</email_body>"
             
         except Exception as error:
             return f"An error occurred reading the email content: {error}"
@@ -432,7 +445,13 @@ class GmailClient:
                     name = header['name'].lower()
                     if name == 'to': to = header['value']
                     elif name == 'subject': subject = header['value']
-                    elif name == 'date': date = header['value']
+                    elif name == 'date': 
+                        import email.utils
+                        try:
+                            dt = email.utils.parsedate_to_datetime(header['value'])
+                            date = dt.astimezone().strftime('%Y-%m-%d %H:%M')
+                        except Exception:
+                            date = header['value']
                 
                 snippet = message.get("snippet", "No Body available")
                 draft_data.append(f"- ID: {draft['id']} | Date: {date} | To: {to} | Subject: <email_subject>{subject}</email_subject> | Body: <email_body>{snippet}</email_body>")

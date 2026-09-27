@@ -1,3 +1,4 @@
+import sys
 import contextlib
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -44,7 +45,7 @@ async def {name}({args_str}):
 
 class MCPClientManager:
     def __init__(self):
-        self.server_params = StdioServerParameters(command="python", args=["-m", "mcp_email_server.server"])
+        self.server_params = StdioServerParameters(command=sys.executable, args=["-m", "mcp_email_server.server"])
         self.exit_stack = contextlib.AsyncExitStack()
         self.session = None
         self.session_id = str(id(self))
