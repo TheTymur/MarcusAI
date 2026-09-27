@@ -116,8 +116,11 @@ class GmailClient:
             raise error
        
 
-    def search_local_database(self, sender: str=None, subject: str=None, account: str= personal_creds):
-        """Search the local SQLite database for emails matching specific criteria (sender/subject).
+    def search_local_database(self, sender: str = Field(None, description="The sender email address to filter by. Uses partial matching. Optional."), subject: str = Field(None, description="The subject to filter by. Uses partial matching. Optional."), account: str = Field(personal_creds, description="The account to use. Valid options: 'personal' (default), 'work'.")) -> str:
+        """Search the local SQLite database for emails matching specific criteria.
+        Both `sender` and `subject` use partial matching (case-insensitive substring match). 
+        If both `sender` and `subject` are provided, they are combined with a logical AND.
+        They are both optional.
         VALID ACCOUNTS: 'personal' (default), 'work'."""
 
         return self.db_manager.search_email_metadata(sender, subject)
@@ -441,7 +444,13 @@ class GmailClient:
 
     def create_draft(self, to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
-        Creates a draft with To, Subject and Message in the user's Gmail account.
+        Creates a standalone draft email in the user's Gmail account.
+
+        When to use vs alternatives:
+        - Use `create_draft` ONLY when starting a brand new email thread.
+        - If you are replying to an existing email, MUST use `create_response_draft` instead (to maintain threading).
+        - If you are forwarding an existing email, MUST use `forward_email` instead.
+        
         Args:
             to (str): The recipient email address.
             subject (str): The subject of the email.
@@ -470,7 +479,12 @@ class GmailClient:
     def modify_draft(self, draft_id: str = Field(description='The ID of the draft to modify.'), to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
         Modifies a draft in the user's Gmail account.
-        CRITICAL: This tool ONLY modifies existing drafts. It CANNOT list, view, or manage blocked senders. Do NOT confuse this tool with list_blocked_senders.
+        
+        Behavior & Side Effects:
+        - This operation completely replaces the draft's To, Subject, and Message body with the newly provided values.
+        - It is a mutating but reversible operation (you can call this again to change the values back).
+        - The `account` parameter determines which inbox's draft is modified.
+        
         Args:
             draft_id (str): The ID of the draft to modify.
             to (str): The recipient email address.
@@ -537,8 +551,13 @@ class GmailClient:
 
     def create_response_draft(self, to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), in_reply_to: str = Field(description='The Message-ID of the email being replied to.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
-        Creates a draft reply to an email using the in_reply_to field to thread it correctly. Use if user wants to reply to an email. Not to confuse with create_draft function.
-        CRITICAL: This tool ONLY creates drafts. It CANNOT list, view, or manage blocked senders. Do NOT confuse this tool with list_blocked_senders.
+        Creates a draft reply to an existing email thread.
+
+        When to use vs alternatives:
+        - Use `create_response_draft` ONLY when replying to an existing email (requires `in_reply_to`).
+        - If you are starting a brand new email thread, MUST use `create_draft` instead.
+        - If you are forwarding an email to a third party, MUST use `forward_email` instead.
+        
         Args:
             to (str): The recipient of the email.
             subject (str): The subject of the email.
@@ -589,8 +608,13 @@ class GmailClient:
 
     def forward_email(self, to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), in_reply_to: str = Field(description='The Message-ID of the email being forwarded.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
-        Forwards an email using the in_reply_to field to thread it correctly. Use if user wants to forward an email.
-        CRITICAL: This tool ONLY forwards emails. It CANNOT list, view, or manage blocked senders. Do NOT confuse this tool with list_blocked_senders.
+        Creates a draft forwarding an existing email to a new recipient.
+
+        When to use vs alternatives:
+        - Use `forward_email` ONLY when sending an existing email to a new third-party recipient (requires `in_reply_to`).
+        - If you are replying back to the original sender, MUST use `create_response_draft` instead.
+        - If you are starting a brand new email thread, MUST use `create_draft` instead.
+        
         Args:
             to (str): The recipient of the email.
             subject (str): The subject of the email.
