@@ -1,3 +1,4 @@
+from pydantic import Field
 import os.path
 import socket
 import ipaddress
@@ -44,7 +45,7 @@ class GmailClient:
                 return found_text, found_html
 
 
-    def authenticate(self, account: str = personal_creds):
+    def authenticate(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")):
         creds = None
         if os.path.exists(f"token_{account}"):
             creds = Credentials.from_authorized_user_file(f"token_{account}", SCOPE)
@@ -62,7 +63,7 @@ class GmailClient:
         self.service[account] = build("gmail", "v1", credentials=creds)
 
 
-    def _parse_and_cache_email(self, msg_data, account: str = personal_creds):
+    def _parse_and_cache_email(self, msg_data, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")):
         """Helper to parse headers/body and save to SQLite + Vector DB if new."""
         payload = msg_data.get("payload", {})
         headers = payload.get("headers", [])
@@ -105,7 +106,7 @@ class GmailClient:
             "reply_to": reply_to, "body": body
         }
 
-    def target_account(self, account: str = personal_creds):
+    def target_account(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")):
         try:
             target_service = self.service.get(account)
             if target_service is None:
@@ -121,15 +122,19 @@ class GmailClient:
 
         return self.db_manager.search_email_metadata(sender, subject)
             
-    def read_local_email(self, email_id: str, account: str = personal_creds):
+    def read_local_email(self, email_id: str, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")):
         """Read the full body of an email from the local SQLite database using its email_id.
         VALID ACCOUNTS: 'personal' (default), 'work'."""
         return self.db_manager.read_local_email(email_id)
 
-    def read_recent_emails(self, limit: int = 5, account: str = personal_creds) -> str:
-        """Reads the most recent emails from the user's Gmail inbox. 
-        VALID ACCOUNTS: 'personal', 'work'.
-        IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later."""
+    def read_recent_emails(self, limit: int = Field(5, description='The maximum number of emails to return.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Reads the most recent emails from the user's Gmail inbox. 
+        IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later.
+        Args:
+            limit (int): The maximum number of emails to return.
+        VALID ACCOUNTS: 'personal' (default), 'work'.
+        """
         try:
             target_service = self.target_account(account)
             results = target_service.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=limit).execute()
@@ -140,20 +145,28 @@ class GmailClient:
         
             email_data = []
             for msg in messages:
-                txt = target_service.users().messages().get(userId="me", id=msg["id"]).execute()
+                txt = target_service.users().messages().get(userId="me", id=msg["id"], format = "metadata", metadataHeaders=["From", "To", "Subject", "Date", "Message-ID"]).execute()
                 parsed = self._parse_and_cache_email(txt, account)
 
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: {parsed['subject']} | Snippet: {snippet}")
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
         
             return "\n".join(email_data)
 
         except Exception as error:
             return f"An error occurred connecting to Gmail: {error}"
 
-    def create_label(self, label_name: str, account: str = personal_creds) -> str:
-        """Creates a new label in the user's Gmail account.
-        VALID ACCOUNTS: 'personal' (default), 'work'."""
+    def create_label(self, label_name: str = Field(description='The name of the label to create.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Creates a new, empty label in the user's Gmail account.
+
+        This only creates the label itself. To actually apply this label to an email, you must subsequently call 'apply_label'.
+        If a label with the exact same name already exists, this operation will fail.
+
+        Args:
+            label_name (str): The name of the new label to create.
+        VALID ACCOUNTS: 'personal' (default), 'work'.
+        """
         try:
             target_service = self.target_account(account)
             label = target_service.users().labels().create(userId="me", body={
@@ -165,8 +178,19 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred creating the label: {error}"
 
-    def apply_label(self, email_id: str, label_id: str, account: str = personal_creds) -> str:
-        """Applies a label to a message in the user's Gmail account.
+    def apply_label(self, email_id: str = Field(description='The ID of the email.'), label_id: str = Field(description='The ID of the label to apply.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Applies an existing label to a specific email message in the user's Gmail account.
+        This is a mutating operation that modifies the email's metadata by attaching the specified label.
+
+        Prerequisites: The label MUST already exist. If you need to create a new label, use 'create_label' first.
+        If you want to remove a label from an email, use 'remove_label' instead.
+
+        This tool is idempotent; applying a label that is already attached to the email will succeed with no additional side effects.
+
+        Args:
+            email_id (str): The ID of the email.
+            label_id (str): The exact ID of the existing label to apply.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -178,9 +202,20 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred applying the label: {error}" 
 
-    def remove_label(self, email_id: str, label_id: str, account: str = personal_creds) -> str:
-        """Removes a label from a message in the user's Gmail account.
-        Also you can use this tool to mark email as read by setting the label_id to "UNREAD".
+    def remove_label(self, email_id: str = Field(description='The ID of the email.'), label_id: str = Field(description='The ID of the label to remove.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Removes a label from a specific email message (untags the email).
+
+        Also you can use this tool to mark an email as read by setting the label_id to "UNREAD".
+
+        When to use vs alternatives:
+        - Use this tool when you want to keep the label in the account, but remove it from a specific email.
+        - Do NOT use this tool if you want to permanently destroy the label from the entire account (use 'delete_label' instead).
+        - Do NOT use this tool if you want to delete the email message itself (use 'delete_message' instead).
+
+        Args:
+            email_id (str): The ID of the email.
+            label_id (str): The ID of the label to remove from this email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -192,8 +227,21 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred removing the label: {error}" 
 
-    def delete_label(self, label_id: str, account: str = personal_creds) -> str:
-        """Deletes a label from the user's Gmail account.
+    def delete_label(self, label_id: str = Field(description='The ID of the label to delete.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Permanently deletes a label from the user's Gmail account entirely.
+
+        Prerequisites: The label MUST exist in the user's account. Use 'list_labels' first to verify the label_id.
+
+        When to use vs alternatives:
+        - Use this tool ONLY when you want to permanently destroy the label itself from the entire Gmail account.
+        - If you only want to remove a label from a specific email (untag the email), use 'remove_label' instead.
+        - If you want to delete an email message entirely, use 'delete_message' instead.
+
+        Consequences: This is a destructive operation. The label will be permanently deleted and removed from all messages it was attached to. The messages themselves will NOT be deleted. This cannot be undone.
+
+        Args:
+            label_id (str): The ID of the label to permanently delete.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -203,8 +251,9 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred deleting the label: {error}"
 
-    def list_labels(self, account: str = personal_creds) -> str:
-        """Lists all labels in the user's Gmail account.
+    def list_labels(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Lists all labels in the user's Gmail account.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -223,8 +272,11 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred listing the labels: {error}"
 
-    def count_messages_in_label(self, label_id: str, account: str = personal_creds) -> str:
-        """Counts the number of messages in a specific label in the user's Gmail account.
+    def count_messages_in_label(self, label_id: str = Field(description='The ID of the label to count messages for.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Counts the number of messages in a specific label in the user's Gmail account.
+        Args:
+            label_id (str): The ID of the label to count messages for.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -235,9 +287,12 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred counting messages in label '{label_id}': {error}"
 
-    def search_emails(self, query: str, account: str = personal_creds) -> str:
-        """Searches for emails in the user's Gmail account based on a query. 
+    def search_emails(self, query: str = Field(description='The search query string (like in Gmail search bar).'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Searches for emails in the user's Gmail account based on a query. 
         IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later.
+        Args:
+            query (str): The search query string (like in Gmail search bar).
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -250,20 +305,23 @@ class GmailClient:
         
             email_data = []
             for msg in messages:
-                txt = target_service.users().messages().get(userId="me", id=msg["id"]).execute()
+                txt = target_service.users().messages().get(userId="me", id=msg["id"], format = "metadata", metadataHeaders=["From", "To", "Subject", "Date", "Message-ID"]).execute()
                 parsed = self._parse_and_cache_email(txt, account)
 
                 snippet = txt.get("snippet", "No preview available")
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: {parsed['subject']} | Snippet: {snippet}")
+                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
         
             return "\n".join(email_data)
 
         except Exception as error:
             return f"An error occurred searching for emails: {error}"
 
-    def read_email_content(self, email_id: str, account: str = personal_creds) -> str:
-        """Reads the full content of a specific email in the user's Gmail account.
+    def read_email_content(self, email_id: str = Field(description='The ID of the email to read.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Reads the full content of a specific email in the user's Gmail account.
         You MUST provide the 'email_id' parameter. You can find the email_id by first calling the 'read_recent_emails' or 'search_emails' tools and looking for the 'ID:' field in the results.
+        Args:
+            email_id (str): The ID of the email to read.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -276,18 +334,20 @@ class GmailClient:
                 body = body[:2000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
                 
             cc_string = f" | Cc: {parsed['cc']}" if parsed['cc'] else ""
-            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']} | Subject: {parsed['subject']} | Body:\n{body}"
+            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Body:\n<email_body>\n{body}\n</email_body>"
             
         except Exception as error:
             return f"An error occurred reading the email content: {error}"
 
-    def delete_message(self, email_id: str, account: str = personal_creds) -> str:
+    def delete_message(self, email_id: str = Field(description='The ID of the email to delete.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
         Deletes an email or moves it to the trash. 
         If the user asks to 'trash', 'remove', or 'delete' an email, use this tool. 
         You MUST provide the 'email_id'. Look in the previous tool responses for the exact ID of the email you are trying to delete.
         CRITICAL: NEVER guess or hallucinate the ID. If you don't know the exact ID, you MUST call 'read_recent_emails' or 'search_emails' FIRST and wait for the results. Do NOT call this tool and a search tool in the same turn.
         Note: To undo a deletion, use the `untrash_message` tool.
+        Args:
+            email_id (str): The ID of the email to delete.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -304,10 +364,12 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred deleting the message: {error}"
 
-    def untrash_message(self, email_id: str, account: str = personal_creds) -> str:
+    def untrash_message(self, email_id: str = Field(description='The ID of the email to untrash.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
         Removes an email from the trash and restores it to the inbox.
         Use this tool if the user asks to undo a deletion, restore a deleted email, or move an email out of the trash.
+        Args:
+            email_id (str): The ID of the email to untrash.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -317,8 +379,19 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred untrashing the message: {error}"
 
-    def delete_draft(self, draft_id: str, account: str = personal_creds) -> str:
-        """Deletes a draft from the user's Gmail account.
+    def delete_draft(self, draft_id: str = Field(description='The ID of the draft to delete.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Permanently deletes a draft from the user's Gmail account.
+
+        Prerequisites: The draft MUST already exist. You should find the draft_id by using 'list_drafts' first.
+
+        When to use: Use this ONLY when the user explicitly asks to cancel, discard, or delete an unsent draft.
+        When NOT to use: Do NOT use this to delete regular sent or received emails (use 'delete_message' instead). Do NOT use this to modify a draft's content (use 'modify_draft' instead).
+
+        Warning: This is a highly destructive operation. Draft deletions cannot be undone (unlike deleting a regular message which goes to trash).
+
+        Args:
+            draft_id (str): The ID of the draft to delete.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -328,8 +401,9 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred deleting the draft: {error}"
 
-    def list_drafts(self, account: str = personal_creds) -> str:
-        """Lists all drafts and its details (To, Subject, Body) in the user's Gmail account.
+    def list_drafts(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Lists all drafts and its details (To, Subject, Body) in the user's Gmail account.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -358,15 +432,20 @@ class GmailClient:
                     elif name == 'date': date = header['value']
                 
                 snippet = message.get("snippet", "No Body available")
-                draft_data.append(f"- ID: {draft['id']} | Date: {date} | To: {to} | Subject: {subject} | Body: {snippet}")
+                draft_data.append(f"- ID: {draft['id']} | Date: {date} | To: {to} | Subject: <email_subject>{subject}</email_subject> | Body: <email_body>{snippet}</email_body>")
         
             return "\n".join(draft_data)
 
         except Exception as error:
             return f"An error occurred listing the drafts: {error}"
 
-    def create_draft(self, to: str, subject: str, message: str, account: str = personal_creds) -> str:
-        """Creates a draft with To, Subject and Message in the user's Gmail account.
+    def create_draft(self, to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Creates a draft with To, Subject and Message in the user's Gmail account.
+        Args:
+            to (str): The recipient email address.
+            subject (str): The subject of the email.
+            message (str): The body of the email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -388,8 +467,15 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred creating the draft: {error}"
 
-    def modify_draft(self, draft_id: str, to: str, subject: str, message: str, account: str = personal_creds) -> str:
-        """Modifies a draft in the user's Gmail account.
+    def modify_draft(self, draft_id: str = Field(description='The ID of the draft to modify.'), to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Modifies a draft in the user's Gmail account.
+        CRITICAL: This tool ONLY modifies existing drafts. It CANNOT list, view, or manage blocked senders. Do NOT confuse this tool with list_blocked_senders.
+        Args:
+            draft_id (str): The ID of the draft to modify.
+            to (str): The recipient email address.
+            subject (str): The subject of the email.
+            message (str): The body of the email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -432,10 +518,13 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred modifying the draft: {error}"
 
-    def send_draft(self, draft_id: str, account: str = personal_creds) -> str:
-        """Sends an existing draft email. 
+    def send_draft(self, draft_id: str = Field(description='The ID of the draft to send.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Sends an existing draft email. 
         CRITICAL: MUST ONLY BE USED AFTER EXPLICIT USER APPROVAL of the draft content.
         CRITICAL: You MUST NOT call this tool in the same turn as 'create_draft', 'create_response_draft', or 'forward_email'. You must create the draft first, show it to the user, and wait for their approval in the next turn before sending.
+        Args:
+            draft_id (str): The ID of the draft to send.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -446,15 +535,15 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred sending the draft: {error}"
 
-    def create_response_draft(self, to: str, subject: str, message: str, in_reply_to: str, account: str = personal_creds) -> str:
-        """Creates a draft reply to an email using the in_reply_to field to thread it correctly. Use if user wants to reply to an email. Not to confuse with create_draft function.
-        
+    def create_response_draft(self, to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), in_reply_to: str = Field(description='The Message-ID of the email being replied to.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Creates a draft reply to an email using the in_reply_to field to thread it correctly. Use if user wants to reply to an email. Not to confuse with create_draft function.
+        CRITICAL: This tool ONLY creates drafts. It CANNOT list, view, or manage blocked senders. Do NOT confuse this tool with list_blocked_senders.
         Args:
             to (str): The recipient of the email.
             subject (str): The subject of the email.
             message (str): The body of the email.
             in_reply_to (str): The ID of the email to reply to.
-
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -498,9 +587,10 @@ class GmailClient:
             return f"An error occurred creating the draft: {error}"
 
 
-    def forward_email(self, to: str, subject: str, message: str, in_reply_to: str, account: str = personal_creds) -> str:
-        """Forwards an email using the in_reply_to field to thread it correctly. Use if user wants to forward an email.
-        
+    def forward_email(self, to: str = Field(description='The recipient email address.'), subject: str = Field(description='The subject of the email.'), message: str = Field(description='The body of the email.'), in_reply_to: str = Field(description='The Message-ID of the email being forwarded.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Forwards an email using the in_reply_to field to thread it correctly. Use if user wants to forward an email.
+        CRITICAL: This tool ONLY forwards emails. It CANNOT list, view, or manage blocked senders. Do NOT confuse this tool with list_blocked_senders.
         Args:
             to (str): The recipient of the email.
             subject (str): The subject of the email.
@@ -514,21 +604,7 @@ class GmailClient:
             thread_id = original_msg.get('threadId')
             
             headers = original_msg.get('payload', {}).get('headers', [])
-            message_id = ""
-            references = ""
-            payload = original_msg.get('payload', {}) 
-            original_body = ""
-
-            if "parts" in payload:
-                for part in payload["parts"]:
-                    if part["mimeType"] == "text/plain":
-                        data = part["body"].get("data")
-                        if data:
-                            original_body = base64.urlsafe_b64decode(data).decode()
-                            break
-            elif "body" in payload and "data" in payload["body"]:
-                original_body = base64.urlsafe_b64decode(payload["body"]["data"]).decode()
-            
+            _, original_body = self.extract_body(original_msg.get('payload', {}))
             combined_message = message + "\n\n" + "Original message:\n" + original_body
 
             for header in headers:
@@ -577,11 +653,14 @@ class GmailClient:
             return False
         return True
 
-    def unsubscribe_from_email(self, email_id: str, account: str = personal_creds) -> str:
-        """Unsubscribes the user from a mailing list using the email's List-Unsubscribe header.
+    def unsubscribe_from_email(self, email_id: str = Field(description='The ID of the email to unsubscribe from.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Unsubscribes the user from a mailing list using the email's List-Unsubscribe header.
         This sends an email or a web request on the user's behalf, so ONLY call it after the user
         explicitly asks to unsubscribe from that sender.
         You MUST provide the Gmail 'email_id' (the 'ID:' field from read_recent_emails or search_emails).
+        Args:
+            email_id (str): The ID of the email to unsubscribe from.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         sender = "Unknown"
@@ -650,9 +729,9 @@ class GmailClient:
             return f"An error occurred unsubscribing from {sender}: {e}"
 
 
-    def block_sender(self, sender: str, account: str = personal_creds) -> str:
-        """Blocks an email sender by creating a filter to move all their emails to the trash.
-
+    def block_sender(self, sender: str = Field(description='The email address to block.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Blocks an email sender by creating a filter to move all their emails to the trash.
         Args:
             sender (str): The email address to block.
         VALID ACCOUNTS: 'personal' (default), 'work'.
@@ -675,8 +754,10 @@ class GmailClient:
         except Exception as e:
             return f"An error occurred blocking {sender}: {e}"
 
-    def list_blocked_senders(self, account: str = personal_creds) -> str:
-        """Lists all blocked senders in the user's Gmail account.
+    def list_blocked_senders(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> list[str] | str:
+        """
+        Lists all blocked senders in the user's Gmail account.
+        CRITICAL: This tool ONLY lists blocked senders. It CANNOT create, modify, or forward drafts/emails. Do NOT confuse this tool with modify_draft, create_response_draft, or forward_email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
 
@@ -703,9 +784,9 @@ class GmailClient:
             return f"An error occurred listing blocked senders: {e}"
 
 
-    def unblock_sender(self, sender: str, account: str = personal_creds) -> str:
-        """Unblocks an email sender by finding and removing their specific filter.
-
+    def unblock_sender(self, sender: str = Field(description='The email address to unblock.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Unblocks an email sender by finding and removing their specific filter.
         Args:
             sender (str): The email address to unblock.
         VALID ACCOUNTS: 'personal' (default), 'work'.

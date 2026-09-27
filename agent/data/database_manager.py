@@ -67,7 +67,7 @@ class Emailprocessing:
             formatted = []
             for email in results:
                 formatted.append(
-                    f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | To: {email.recipient} | Subject: {email.subject} | Account: {email.account_name}"
+                    f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | To: {email.recipient} | Subject: <email_subject>{email.subject}</email_subject> | Account: {email.account_name}"
                 )
             return "\n".join(formatted)
             
@@ -90,8 +90,8 @@ class Emailprocessing:
             body = email.body if email.body else "No body content available."
             return (
                 f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | "
-                f"To: {email.recipient} | Subject: {email.subject}\n"
-                f"Body:\n{body}"
+                f"To: {email.recipient} | Subject: <email_subject>{email.subject}</email_subject>\n"
+                f"Body:\n<email_body>\n{body}\n</email_body>"
             )
         except Exception as e:
             return f"Error reading email from local database: {e}"

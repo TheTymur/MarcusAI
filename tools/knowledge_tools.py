@@ -1,6 +1,8 @@
 from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
 from typing import Optional
 import chromadb
+from pydantic import Field
+
 class VectorMemory:
     def __init__(self, db_path="./agent/data/chroma_db"):
         self.client = chromadb.PersistentClient(path=db_path)
@@ -27,7 +29,7 @@ class VectorMemory:
         except Exception as error:
             return f"Error adding memory: {error}"
     
-    def save_user_preference(self, fact: str):
+    def save_user_preference(self, fact: str = Field(description="The fact, contact, or preference about the user to save.")):
         """
         Saves a fact, contact, or preference about the user into long-term memory.
         Use this tool whenever the user tells you something you should remember for the future
@@ -37,7 +39,7 @@ class VectorMemory:
         print("[System Info]: Saving user preference...")
         return self.add_memory(fact, "user_preference", int(time.time()))
     
-    def search_knowledge_base(self, query: str, where_filter: Optional[dict] = None):
+    def search_knowledge_base(self, query: str = Field(description="The query to search the knowledge base for."), where_filter: Optional[dict] = Field(None, description="Optional metadata filter dictionary.")):
         """
         Searches the vector database for past emails, documents, or knowledge.
         Use this tool when you need to recall previous interactions, retrieve standard 

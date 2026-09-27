@@ -1,8 +1,7 @@
 import datetime
-
-
+from pydantic import Field
 class System:
-    def exit_agent(self, message: str):
+    def exit_agent(self, message: str = Field(description="Your final goodbye message to the user.")):
         """Exits the agent if the user told it to exit or if the user is done with the agent. 
         You MUST provide a 'message' argument with your final goodbye message to the user.
         Do NOT use this tool unless the user explicitly tells you to exit.
@@ -15,14 +14,14 @@ class System:
         return "Exiting..."
 
 
-    def get_current_date_and_time(self):
+    def get_current_date_and_time(self) -> str:
         """Returns the current date and time. Returns in the following format: YYYY-MM-DD HH:MM:SS. 
         Good for using in email templates when you need to insert current date and time or find emails by date."""
         now = datetime.datetime.now()
         return now.strftime("%Y-%m-%d %H:%M:%S")
 
 
-    def deep_system_diagnostic(self):
+    def deep_system_diagnostic(self) -> str:
         import re
         from tools.gmail_tools import GmailClient
         from agent.data.database_manager import Emailprocessing
@@ -33,6 +32,7 @@ class System:
         It physically tests every single tool using a real E2E queue (creating and deleting real drafts/labels).
         Use this ONLY when the user explicitly asks for a "cinematic check", "deep diagnostic", 
         or wants to see a true E2E tool run.
+        CRITICAL: This tool CANNOT create, modify, or forward real emails for the user. Do NOT confuse this with create_response_draft, modify_draft, or forward_email.
         
         CRITICAL INSTRUCTION FOR AI: When you use this tool, you MUST reply to the user with the EXACT string returned by this tool verbatim. 
         DO NOT summarize the results. You MUST print the full list of tools and their statuses exactly as they are returned to you.

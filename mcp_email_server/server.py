@@ -16,8 +16,29 @@ tools_to_add = [
     gmail_client.list_blocked_senders
 ]
 
+from mcp.types import ToolAnnotations
+
+read_only_tools = {
+    "read_recent_emails", "read_email_content", "list_labels", "list_drafts",
+    "search_emails", "search_local_database", "count_messages_in_label",
+    "list_blocked_senders", "get_current_date_and_time", "search_knowledge_base",
+    "deep_system_diagnostic"
+}
+destructive_tools = {
+    "delete_message", "delete_draft", "delete_label", "untrash_message"
+}
+
 for t in tools_to_add:
-    mcp.add_tool(t)
+    name = t.__name__
+    is_ro = name in read_only_tools
+    is_destructive = name in destructive_tools
+    ann = ToolAnnotations(
+        readOnlyHint=is_ro,
+        destructiveHint=is_destructive,
+        idempotentHint=is_ro,
+        openWorldHint=False
+    )
+    mcp.tool(name=name, annotations=ann)(t)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)
