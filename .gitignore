@@ -52,3 +52,4 @@ token_*
 context/
 agent/data/
 tools_schema.json
+.agents/
