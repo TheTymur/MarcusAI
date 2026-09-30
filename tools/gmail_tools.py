@@ -161,7 +161,8 @@ class GmailClient:
 
                 snippet = txt.get("snippet", "No preview available")
                 labels_str = ", ".join(parsed['labels']) if parsed['labels'] else "None"
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
+                is_read = "UNREAD" not in parsed['labels']
+                email_data.append(f"- ID: {msg['id']} | Is Read: {is_read} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
         
             return "\n".join(email_data)
 
@@ -379,7 +380,8 @@ class GmailClient:
 
                 snippet = txt.get("snippet", "No preview available")
                 labels_str = ", ".join(parsed['labels']) if parsed['labels'] else "None"
-                email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
+                is_read = "UNREAD" not in parsed['labels']
+                email_data.append(f"- ID: {msg['id']} | Is Read: {is_read} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Snippet: <email_snippet>{snippet}</email_snippet>")
         
             return "\n".join(email_data)
 
@@ -397,6 +399,13 @@ class GmailClient:
             txt = target_service.users().messages().get(userId="me", id=email_id).execute()
             parsed = self._parse_and_cache_email(txt, account)
             
+            if "UNREAD" in parsed['labels']:
+                try:
+                    target_service.users().messages().modify(userId="me", id=email_id, body={"removeLabelIds": ["UNREAD"]}).execute()
+                    parsed['labels'].remove("UNREAD")
+                except Exception:
+                    pass
+
             body = parsed['body']
             if len(body) > 2000:
                 body = body[:2000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
