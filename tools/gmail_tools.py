@@ -143,8 +143,6 @@ class GmailClient:
         """
         Reads the most recent emails from the user's Gmail inbox. 
         IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later.
-        Args:
-            limit (int): The maximum number of emails to return.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -176,8 +174,6 @@ class GmailClient:
         This only creates the label itself. To actually apply this label to an email, you must subsequently call 'apply_label'.
         If a label with the exact same name already exists, this operation will fail.
 
-        Args:
-            label_name (str): The name of the new label to create.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -201,9 +197,6 @@ class GmailClient:
 
         This tool is idempotent; applying a label that is already attached to the email will succeed with no additional side effects.
 
-        Args:
-            email_id (str): The ID of the email.
-            label_id (str): The exact ID of the existing label to apply.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -226,9 +219,6 @@ class GmailClient:
         - Do NOT use this tool if you want to permanently destroy the label from the entire account (use 'delete_label' instead).
         - Do NOT use this tool if you want to delete the email message itself (use 'delete_message' instead).
 
-        Args:
-            email_id (str): The ID of the email.
-            label_id (str): The ID of the label to remove from this email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -253,8 +243,6 @@ class GmailClient:
 
         Consequences: This is a destructive operation. The label will be permanently deleted and removed from all messages it was attached to. The messages themselves will NOT be deleted. This cannot be undone.
 
-        Args:
-            label_id (str): The ID of the label to permanently delete.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -288,8 +276,6 @@ class GmailClient:
     def count_messages_in_label(self, label_id: str = Field(description='The ID of the label to count messages for.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
         Counts the number of messages in a specific label in the user's Gmail account.
-        Args:
-            label_id (str): The ID of the label to count messages for.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -304,9 +290,6 @@ class GmailClient:
         """
         Searches for emails in the user's Gmail account based on a query. 
         IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later.
-        Args:
-            query (str): The search query string (like in Gmail search bar).
-            limit (int): The maximum number of emails to return.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -335,8 +318,6 @@ class GmailClient:
         """
         Reads the full content of a specific email in the user's Gmail account.
         You MUST provide the 'email_id' parameter. You can find the email_id by first calling the 'read_recent_emails' or 'search_emails' tools and looking for the 'ID:' field in the results.
-        Args:
-            email_id (str): The ID of the email to read.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -362,8 +343,6 @@ class GmailClient:
         You MUST provide the 'email_id'. Look in the previous tool responses for the exact ID of the email you are trying to delete.
         CRITICAL: NEVER guess or hallucinate the ID. If you don't know the exact ID, you MUST call 'read_recent_emails' or 'search_emails' FIRST and wait for the results. Do NOT call this tool and a search tool in the same turn.
         Note: To undo a deletion, use the `untrash_message` tool.
-        Args:
-            email_id (str): The ID of the email to delete.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -384,8 +363,6 @@ class GmailClient:
         """
         Removes an email from the trash and restores it to the inbox.
         Use this tool if the user asks to undo a deletion, restore a deleted email, or move an email out of the trash.
-        Args:
-            email_id (str): The ID of the email to untrash.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -406,8 +383,6 @@ class GmailClient:
 
         Warning: This is a highly destructive operation. Draft deletions cannot be undone (unlike deleting a regular message which goes to trash).
 
-        Args:
-            draft_id (str): The ID of the draft to delete.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -470,10 +445,6 @@ class GmailClient:
         - If you are replying to an existing email, MUST use `create_response_draft` instead (to maintain threading).
         - If you are forwarding an existing email, MUST use `forward_email` instead.
         
-        Args:
-            to (str): The recipient email address.
-            subject (str): The subject of the email.
-            message (str): The body of the email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -504,11 +475,6 @@ class GmailClient:
         - It is a mutating but reversible operation (you can call this again to change the values back).
         - The `account` parameter determines which inbox's draft is modified.
         
-        Args:
-            draft_id (str): The ID of the draft to modify.
-            to (str): The recipient email address.
-            subject (str): The subject of the email.
-            message (str): The body of the email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -556,8 +522,6 @@ class GmailClient:
         Sends an existing draft email. 
         CRITICAL: MUST ONLY BE USED AFTER EXPLICIT USER APPROVAL of the draft content.
         CRITICAL: You MUST NOT call this tool in the same turn as 'create_draft', 'create_response_draft', or 'forward_email'. You must create the draft first, show it to the user, and wait for their approval in the next turn before sending.
-        Args:
-            draft_id (str): The ID of the draft to send.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -577,11 +541,6 @@ class GmailClient:
         - If you are starting a brand new email thread, MUST use `create_draft` instead.
         - If you are forwarding an email to a third party, MUST use `forward_email` instead.
         
-        Args:
-            to (str): The recipient of the email.
-            subject (str): The subject of the email.
-            message (str): The body of the email.
-            in_reply_to (str): The ID of the email to reply to.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -634,11 +593,6 @@ class GmailClient:
         - If you are replying back to the original sender, MUST use `create_response_draft` instead.
         - If you are starting a brand new email thread, MUST use `create_draft` instead.
         
-        Args:
-            to (str): The recipient of the email.
-            subject (str): The subject of the email.
-            message (str): The body of the email.
-            in_reply_to (str): The ID of the email to forward.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
@@ -702,8 +656,6 @@ class GmailClient:
         This sends an email or a web request on the user's behalf, so ONLY call it after the user
         explicitly asks to unsubscribe from that sender.
         You MUST provide the Gmail 'email_id' (the 'ID:' field from read_recent_emails or search_emails).
-        Args:
-            email_id (str): The ID of the email to unsubscribe from.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         sender = "Unknown"
@@ -771,31 +723,75 @@ class GmailClient:
         except Exception as e:
             return f"An error occurred unsubscribing from {sender}: {e}"
 
+    def create_filter(self, 
+                      from_sender: str = Field(None, description="Match emails from this sender."),
+                      to_recipient: str = Field(None, description="Match emails sent to this address."),
+                      subject: str = Field(None, description="Match emails with this subject."),
+                      query: str = Field(None, description="Match emails matching this Gmail search query."),
+                      add_label_ids: list[str] = Field(None, description="List of label IDs to add (e.g., ['TRASH', 'STARRED'])."),
+                      remove_label_ids: list[str] = Field(None, description="List of label IDs to remove (e.g., ['INBOX', 'UNREAD'])."),
+                      account: str = Field(personal_creds, description="The account to use. Valid options: 'personal' (default), 'work'.")) -> str:
+        """
+        Creates a new filter to automatically handle incoming emails based on specified criteria.
+        At least one of 'from_sender', 'to_recipient', 'subject', or 'query' must be provided.
+
+        Args:
+            from_sender (str, optional): Match emails from this sender.
+            to_recipient (str, optional): Match emails sent to this address.
+            subject (str, optional): Match emails with this subject.
+            query (str, optional): Raw Gmail search query.
+            add_label_ids (list[str], optional): List of label IDs to add (e.g., ['TRASH', 'STARRED']).
+            remove_label_ids (list[str], optional): List of label IDs to remove (e.g., ['INBOX', 'UNREAD']).
+            account (str, optional): The account to use. Valid options: 'personal' (default), 'work'.
+
+        VALID ACCOUNTS: 'personal' (default), 'work'.
+        """
+        try:
+            target_service = self.target_account(account)
+
+            if not any([from_sender, to_recipient, subject, query]):
+                return "Error: You must provide at least one of 'from_sender', 'to_recipient', 'subject', or 'query'."
+
+            criteria = {}
+            if from_sender:
+                criteria['from'] = from_sender
+            if to_recipient:
+                criteria['to'] = to_recipient
+            if subject:
+                criteria['subject'] = subject
+            if query:
+                criteria['query'] = query
+
+            action = {}
+            if add_label_ids:
+                action['addLabelIds'] = add_label_ids
+            if remove_label_ids:
+                action['removeLabelIds'] = remove_label_ids
+
+            filter_body = {
+                "criteria": criteria,
+                "action": action
+            }
+
+            result = target_service.users().settings().filters().create(
+                userId='me',
+                body=filter_body
+            ).execute()
+
+            return f"Successfully created filter with ID: {result['id']}"
+
+        except Exception as e:
+            return f"Error creating filter: {str(e)}"
 
     def block_sender(self, sender: str = Field(description='The email address to block.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
         Blocks an email sender by creating a filter to move all their emails to the trash.
-        Args:
-            sender (str): The email address to block.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
-
-        filter_config = {
-            "criteria": {
-                "from": sender
-            },
-            "action": {
-                "addLabelIds": ["TRASH"],
-                "removeLabelIds": ["INBOX"]
-            }
-        }
-
-        try:
-            target_service = self.target_account(account)
-            target_service.users().settings().filters().create(userId="me", body=filter_config).execute()
+        result = self.create_filter(from_sender=sender, add_label_ids=["TRASH"], remove_label_ids=["INBOX"], account=account)
+        if "Successfully" in result:
             return f"Successfully blocked {sender}."
-        except Exception as e:
-            return f"An error occurred blocking {sender}: {e}"
+        return result
 
     def list_blocked_senders(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> list[str] | str:
         """
@@ -803,56 +799,84 @@ class GmailClient:
         CRITICAL: This tool ONLY lists blocked senders. It CANNOT create, modify, or forward drafts/emails. Do NOT confuse this tool with modify_draft, create_response_draft, or forward_email.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
-
-
         try:
             target_service = self.target_account(account)
             results = target_service.users().settings().filters().list(userId="me").execute()
             filters = results.get('filter', [])
             
-            if not filters:
-                return "No block filters found in your account."
-                    
             blocked_senders = []
-                
             for f in filters:
                 criteria = f.get('criteria', {})
+                action = f.get('action', {})
                 from_email = criteria.get('from', '')
                 
-                if from_email:
+                # Check if this filter is actually a "block" filter
+                if from_email and 'TRASH' in action.get('addLabelIds', []):
                     blocked_senders.append(from_email)
+            
+            if not blocked_senders:
+                return "No block filters found in your account."
             
             return blocked_senders
         except Exception as e:
             return f"An error occurred listing blocked senders: {e}"
 
 
-    def unblock_sender(self, sender: str = Field(description='The email address to unblock.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+    def list_filters(self, account: str = Field(personal_creds, description="The account to use. Valid options: 'personal' (default), 'work'.")) -> str:
         """
-        Unblocks an email sender by finding and removing their specific filter.
-        Args:
-            sender (str): The email address to unblock.
+        Lists all filters in the user's Gmail account, including their IDs, criteria, and actions.
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
-
         try:
             target_service = self.target_account(account)
             results = target_service.users().settings().filters().list(userId="me").execute()
             filters = results.get('filter', [])
             
             if not filters:
-                return "No block filters found in your account."
-                    
-            filters_deleted = 0
+                return "No filters found in your account."
                 
+            filter_data = []
+            for f in filters:
+                f_id = f.get('id')
+                criteria = f.get('criteria', {})
+                action = f.get('action', {})
+                filter_data.append(f"- ID: {f_id} | Criteria: {criteria} | Action: {action}")
+                
+            return "\n".join(filter_data)
+        except Exception as e:
+            return f"An error occurred listing filters: {e}"
+
+    def delete_filter(self, filter_id: str = Field(description='The ID of the filter to delete.'), account: str = Field(personal_creds, description="The account to use. Valid options: 'personal' (default), 'work'.")) -> str:
+        """
+        Deletes a specific filter in the user's Gmail account by its ID.
+        VALID ACCOUNTS: 'personal' (default), 'work'.
+        """
+        try:
+            target_service = self.target_account(account)
+            target_service.users().settings().filters().delete(userId="me", id=filter_id).execute()
+            return f"Successfully deleted filter with ID: {filter_id}"
+        except Exception as e:
+            return f"An error occurred deleting the filter: {e}"
+
+    def unblock_sender(self, sender: str = Field(description='The email address to unblock.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Unblocks an email sender by finding and removing their specific filter.
+        VALID ACCOUNTS: 'personal' (default), 'work'.
+        """
+        try:
+            target_service = self.target_account(account)
+            results = target_service.users().settings().filters().list(userId="me").execute()
+            filters = results.get('filter', [])
+            
+            filters_deleted = 0
             for f in filters:
                 criteria = f.get('criteria', {})
+                action = f.get('action', {})
                 from_email = criteria.get('from', '')
                     
-                if sender.lower() in from_email.lower():
+                if from_email and sender.lower() in from_email.lower() and 'TRASH' in action.get('addLabelIds', []):
                     filter_id = f['id']
-                        
-                    target_service.users().settings().filters().delete(userId="me", id=filter_id).execute()
+                    self.delete_filter(filter_id=filter_id, account=account)
                     filters_deleted += 1
                         
             if filters_deleted > 0:

@@ -89,7 +89,7 @@ def safe_trim(history, keep=8):
 async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60): 
     for attempt in range(max_retries + 1):
         try:
-            return await asyncio.wait_for(chat.send_message(text), timeout=timeout)
+            return await asyncio.wait_for(chat.send_message_stream(text), timeout=timeout)
         except asyncio.TimeoutError:
             print(f"\n[System Info]: Request timed out after {timeout}s. (Attempt {attempt + 1}/{max_retries})")
             if attempt < max_retries:
@@ -264,22 +264,33 @@ async def start_agent():
                     print("[System Error]: Local model failed. Please try again in a moment.\n")
                 return
 
-            text_response = extract_text(response)
             commit_local({"role": "user", "content": user_input})
+            text_response = ""
+            has_function_calls = False
+            output_started = False
+            
+            async for chunk in response:
+                if getattr(chunk, "function_calls", None):
+                    has_function_calls = True
+                    continue
+                    
+                if getattr(chunk, "text", None):
+                    if not output_started:
+                        print("\nAI (Gemini): ", end="", flush=True)
+                        output_started = True
+                    
+                    print(chunk.text, end="", flush=True)
+                    text_response += chunk.text
+
+            commit_local({"role": "assistant", "content": text_response})
+            
             if text_response:
-                print("\nAI (Gemini): " + text_response + "\n")
-                commit_local({"role": "assistant", "content": text_response})
+                print("\n\n", flush=True)
             else:
-                has_function_calls = False
-                if getattr(response, "candidates", None) and response.candidates[0].content.parts:
-                    has_function_calls = any(p.function_call for p in response.candidates[0].content.parts)
-                
                 if has_function_calls:
                     print("\n[System Warning]: The AI reached its maximum internal loop limit for tool calls and was stopped to prevent an infinite loop. Please provide more specific instructions or increase limits.")
                 else:
-                    finish_reason = getattr(response.candidates[0], "finish_reason", "UNKNOWN") if getattr(response, "candidates", None) else "UNKNOWN"
-                    print(f"\n[System Warning]: Gemini returned an empty text response. Finish reason: {finish_reason}")
-                    print(f"Raw response: {response}\n")
+                    print(f"\n[System Warning]: Gemini returned an empty text response or stream was aborted.")
 
             await maybe_summarize_and_trim()
 
@@ -305,7 +316,7 @@ async def start_agent():
                 summary_response = await gemini_client.aio.models.generate_content(
                     model=GEMINI_MODELS[current_model_index],
                     contents=summary_prompt,
-                    config=types.GenerateContentConfig(tools=[]),
+                    config=types.GenerateContentConfig(),
                 )
                 if summary_response.text:
                     memory_client.add_memory(
