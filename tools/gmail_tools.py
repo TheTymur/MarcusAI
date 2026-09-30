@@ -12,6 +12,7 @@ from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
 from agent.data.database_manager import Emailprocessing
 import re, requests
+from typing import Literal
 
 SCOPE = ["https://mail.google.com/",
         "https://www.googleapis.com/auth/gmail.settings.basic"]
@@ -167,7 +168,15 @@ class GmailClient:
         except Exception as error:
             return f"An error occurred connecting to Gmail: {error}"
 
-    def create_label(self, label_name: str = Field(description='The name of the label to create.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+    def create_label(
+        self,
+        label_name: str = Field(description='The name of the label to create.'),
+        label_list_visibility: Literal["labelShow", "labelShowIfUnread", "labelHide"] = Field(
+            "labelShow", 
+            description="Visibility of the label in the label list. labelShow: Show the label. labelShowIfUnread: Show if there are any unread messages with that label. labelHide: Do not show."
+        ),
+        account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")
+    ) -> str:
         """
         Creates a new, empty label in the user's Gmail account.
 
@@ -180,7 +189,7 @@ class GmailClient:
             target_service = self.target_account(account)
             label = target_service.users().labels().create(userId="me", body={
                 "name": label_name,
-                "labelListVisibility": "labelShow",
+                "labelListVisibility": label_list_visibility,
                 "messageListVisibility": "show"
             }).execute()
             return f"Label '{label_name}' created successfully and its ID is {label['id']}."
@@ -251,6 +260,60 @@ class GmailClient:
             return f"Label '{label_id}' deleted successfully."
         except Exception as error:
             return f"An error occurred deleting the label: {error}"
+
+    def update_label(
+        self,
+        label_id: str = Field(description='The ID of the label to update.'),
+        label_name: str = Field(default=None, description='The new name of the label (optional).'),
+        label_list_visibility: Literal["labelShow", "labelShowIfUnread", "labelHide"] = Field(
+            default=None, 
+            description="Visibility of the label in the label list. labelShow: Show the label. labelShowIfUnread: Show if there are any unread messages with that label. labelHide: Do not show."
+        ),
+        message_list_visibility: Literal["show", "hide"] = Field(
+            default=None,
+            description="Visibility of messages with this label in the message list."
+        ),
+        text_color: str = Field(default=None, description="The text color of the label as a hex string (e.g. '#000000'). Must be a color supported by the Gmail API."),
+        background_color: str = Field(default=None, description="The background color of the label as a hex string (e.g. '#ffffff'). Must be a color supported by the Gmail API."),
+        account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")
+    ) -> str:
+        """
+        Updates the properties of an existing label in the user's Gmail account.
+        Only the properties provided will be updated (patch semantics).
+
+        Prerequisites: The label MUST exist in the user's account. Use 'list_labels' first to verify the label_id.
+
+        When to use vs alternatives:
+        - Use this tool when you want to rename a label, change its visibility, or update its colors.
+        - If you want to apply a label to an email, use 'apply_label' instead.
+        - If you want to create a new label from scratch, use 'create_label' instead.
+
+        VALID ACCOUNTS: 'personal' (default), 'work'.
+        """
+        try:
+            target_service = self.target_account(account)
+            body = {}
+            if label_name is not None:
+                body["name"] = label_name
+            if label_list_visibility is not None:
+                body["labelListVisibility"] = label_list_visibility
+            if message_list_visibility is not None:
+                body["messageListVisibility"] = message_list_visibility
+            
+            if text_color is not None or background_color is not None:
+                body["color"] = {}
+                if text_color is not None:
+                    body["color"]["textColor"] = text_color
+                if background_color is not None:
+                    body["color"]["backgroundColor"] = background_color
+            
+            if not body:
+                return "No updates provided."
+
+            label = target_service.users().labels().patch(userId="me", id=label_id, body=body).execute()
+            return f"Label '{label_id}' updated successfully."
+        except Exception as error:
+            return f"An error occurred updating the label: {error}"
 
     def list_labels(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
