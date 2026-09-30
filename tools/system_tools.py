@@ -1,5 +1,11 @@
 import datetime
 from pydantic import Field
+import os
+import signal
+import sys
+import threading
+import time
+
 class System:
     def exit_agent(self, message: str = Field(description="Your final goodbye message to the user.")):
         """Exits the agent and terminates the program.
@@ -7,12 +13,14 @@ class System:
         CRITICAL RULE: Do NOT use this tool unless the user EXPLICITLY says 'bye', 'goodbye', 'exit', 'quit', OR answers 'yes' when you ask if that is all. 
         Never assume a conversation is over just because the user asks you to remember something for the future or if they say 'okay'.
         """
-        import os
-        import signal
-        print(f"\nAI: {message}\n")
-        # Terminating parental process to exit main agent
-        os.kill(os.getppid(), signal.SIGTERM)
-        return "Exiting..."
+        print(f"\nAI: {message}\n", file=sys.stderr)
+        
+        def delayed_exit():
+            time.sleep(0.5) 
+            os.kill(os.getppid(), signal.SIGINT) 
+            
+        threading.Thread(target=delayed_exit, daemon=True).start()
+        return message
 
 
     def get_current_date_and_time(self) -> str:
