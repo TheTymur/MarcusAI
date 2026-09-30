@@ -310,7 +310,7 @@ class GmailClient:
             if not body:
                 return "No updates provided."
 
-            label = target_service.users().labels().patch(userId="me", id=label_id, body=body).execute()
+            target_service.users().labels().patch(userId="me", id=label_id, body=body).execute()
             return f"Label '{label_id}' updated successfully."
         except Exception as error:
             return f"An error occurred updating the label: {error}"
@@ -338,14 +338,23 @@ class GmailClient:
 
     def count_messages_in_label(self, label_id: str = Field(description='The ID of the label to count messages for.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
-        Counts the number of messages in a specific label in the user's Gmail account.
+        Counts the total number of messages and the number of unread messages in a specific label in the user's Gmail account.
+
+        Prerequisites: The label MUST exist in the user's account. Use 'list_labels' first to verify the label_id if you are unsure.
+
+        When to use vs alternatives:
+        - Use this tool when you only need to know how many messages (total and unread) have a specific label.
+        - Do NOT use this tool if you need to read the actual content or see the metadata of the messages (use 'search_emails' or 'read_recent_emails' instead).
+        - Do NOT use this tool to list all available labels (use 'list_labels' instead).
+
         VALID ACCOUNTS: 'personal' (default), 'work'.
         """
         try:
             target_service = self.target_account(account)
-            results = target_service.users().messages().list(userId="me", labelIds=[label_id]).execute()
-            message_count = results.get("resultSizeEstimate", 0)
-            return f"The label '{label_id}' has {message_count} message(s)."
+            label = target_service.users().labels().get(userId="me", id=label_id).execute()
+            message_count = label.get("messagesTotal", 0)
+            unread_count = label.get("messagesUnread", 0)
+            return f"The label '{label_id}' has {message_count} total message(s), {unread_count} of which are unread."
         except Exception as error:
             return f"An error occurred counting messages in label '{label_id}': {error}"
 
