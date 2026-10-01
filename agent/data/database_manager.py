@@ -23,6 +23,7 @@ class Emails(Base):
     account_name = Column(Text)
 
     body = Column(Text)
+    attachments = Column(Text, nullable=True)
 
     ai_processed = Column(Boolean, default=False)
     reply_drafted = Column(Boolean, default=False)
@@ -88,9 +89,10 @@ class Emailprocessing:
                 return f"No email found with ID {email_id}."
             
             body = email.body if email.body else "No body content available."
+            attachments_str = f" | Attachments: {email.attachments}" if getattr(email, 'attachments', None) else ""
             return (
                 f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | "
-                f"To: {email.recipient} | Subject: <email_subject>{email.subject}</email_subject>\n"
+                f"To: {email.recipient} | Subject: <email_subject>{email.subject}</email_subject>{attachments_str}\n"
                 f"Body:\n<email_body>\n{body}\n</email_body>"
             )
         except Exception as e:
@@ -151,7 +153,7 @@ class Emailprocessing:
             ids=[f"{gmail_id}_chunk{i}" for i in range(len(chunks))]
         )
 
-    def store_email(self, message_id, gmail_id, sender, recipient, subject, date, clean_body, account):
+    def store_email(self, message_id, gmail_id, sender, recipient, subject, date, clean_body, account, attachments=None):
         try:
             new_email = Emails(
                 message_id=message_id,
@@ -161,7 +163,8 @@ class Emailprocessing:
                 subject=subject,
                 date=self.parse_date(date),
                 body=clean_body,
-                account_name=account
+                account_name=account,
+                attachments=attachments
             )
 
             self.session.add(new_email)

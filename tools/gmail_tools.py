@@ -11,7 +11,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
 from agent.data.database_manager import Emailprocessing
-import re, requests
+import re, requests, json
 from typing import Literal
 
 SCOPE = ["https://mail.google.com/",
@@ -111,7 +111,8 @@ class GmailClient:
             body = msg_data.get("snippet", "No Body available")
             
         gmail_id = msg_data['id']
-        is_new = self.db_manager.store_email(message_id, gmail_id, sender, recipient, subject, date, body, account)
+        attachments_json = json.dumps(attachments) if attachments else None
+        is_new = self.db_manager.store_email(message_id, gmail_id, sender, recipient, subject, date, body, account, attachments=attachments_json)
         if is_new:
             self.db_manager.process_email(body, message_id, gmail_id, sender, subject, date, account)
 
