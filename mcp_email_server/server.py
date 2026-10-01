@@ -13,7 +13,8 @@ tools_to_add = [
     gmail_client.create_response_draft, gmail_client.forward_email, memory_client.search_knowledge_base, memory_client.save_user_preference,
     gmail_client.search_local_database, gmail_client.unsubscribe_from_email, gmail_client.block_sender, gmail_client.unblock_sender,
     gmail_client.list_blocked_senders, gmail_client.read_recent_emails, gmail_client.read_local_email, gmail_client.create_label,
-    gmail_client.apply_label, gmail_client.untrash_message, gmail_client.create_filter, gmail_client.list_filters, gmail_client.delete_filter
+    gmail_client.apply_label, gmail_client.untrash_message, gmail_client.create_filter, gmail_client.list_filters, gmail_client.delete_filter,
+    gmail_client.download_attachment
 ]
 
 from mcp.types import ToolAnnotations
@@ -22,7 +23,7 @@ read_only_tools = {
     "read_recent_emails", "read_email_content", "list_labels", "list_drafts",
     "search_emails", "search_local_database", "count_messages_in_label",
     "list_blocked_senders", "get_current_date_and_time", "search_knowledge_base",
-    "read_local_email", "list_filters"
+    "read_local_email", "list_filters", "download_attachment"
 }
 destructive_tools = {
     "delete_message", "delete_draft", "delete_label", "untrash_message", "delete_filter",

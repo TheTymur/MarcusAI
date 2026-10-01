@@ -30,20 +30,29 @@ class GmailClient:
             self.authenticate(account)
 
     def extract_body(self, part):
-                found_text = ""
-                found_html = ""
-                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
-                    found_text = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                elif part.get('mimeType') == 'text/html' and 'data' in part.get('body', {}):
-                    found_html = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+        found_text = ""
+        found_html = ""
+        attachments = []
+        
+        filename = part.get('filename')
+        if filename:
+            attachment_id = part.get('body', {}).get('attachmentId')
+            if attachment_id:
+                attachments.append({"filename": filename, "attachmentId": attachment_id})
+
+        if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+            found_text = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+        elif part.get('mimeType') == 'text/html' and 'data' in part.get('body', {}):
+            found_html = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+        
+        if 'parts' in part:
+            for subpart in part['parts']:
+                sub_text, sub_html, sub_attachments = self.extract_body(subpart)
+                if sub_text: found_text += sub_text
+                if sub_html: found_html += sub_html
+                if sub_attachments: attachments.extend(sub_attachments)
                 
-                if 'parts' in part:
-                    for subpart in part['parts']:
-                        sub_text, sub_html = self.extract_body(subpart)
-                        if sub_text: found_text += sub_text
-                        if sub_html: found_html += sub_html
-                        
-                return found_text, found_html
+        return found_text, found_html, attachments
 
 
     def authenticate(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")):
@@ -90,7 +99,7 @@ class GmailClient:
             elif name == 'in-reply-to': in_reply_to = header['value']
             elif name == 'references': references = header['value']
 
-        plain_text, html_text = self.extract_body(payload)
+        plain_text, html_text, attachments = self.extract_body(payload)
         
         body = "No Body available"
         if html_text:
@@ -112,7 +121,7 @@ class GmailClient:
             "sender": sender, "recipient": recipient, "cc": cc, 
             "subject": subject, "date": date, "message_id": message_id,
             "in_reply_to": in_reply_to, "references": references,
-            "reply_to": reply_to, "body": body, "labels": labels
+            "reply_to": reply_to, "body": body, "labels": labels, "attachments": attachments
         }
 
     def target_account(self, account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")):
@@ -412,10 +421,39 @@ class GmailClient:
                 
             cc_string = f" | Cc: {parsed['cc']}" if parsed['cc'] else ""
             labels_str = ", ".join(parsed['labels']) if parsed['labels'] else "None"
-            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']} | Subject: <email_subject>{parsed['subject']}</email_subject> | Body:\n<email_body>\n{body}\n</email_body>"
+            attachments_str = ""
+            if parsed.get('attachments'):
+                att_info = [f"{a['filename']} (ID: {a['attachmentId']})" for a in parsed['attachments']]
+                attachments_str = f" | Attachments: {', '.join(att_info)}"
+            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']}{attachments_str} | Subject: <email_subject>{parsed['subject']}</email_subject> | Body:\n<email_body>\n{body}\n</email_body>"
             
         except Exception as error:
             return f"An error occurred reading the email content: {error}"
+
+    def download_attachment(self, email_id: str = Field(description='The ID of the email containing the attachment.'), attachment_id: str = Field(description='The ID of the attachment to download.'), filename: str = Field(description='The name to save the attachment as.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
+        """
+        Downloads an attachment from an email and saves it to the macOS Downloads folder.
+        You MUST provide the 'email_id' and 'attachment_id'. You can find these by first calling 'read_email_content'.
+        VALID ACCOUNTS: 'personal' (default), 'work'.
+        """
+        try:
+            target_service = self.target_account(account)
+            attachment = target_service.users().messages().attachments().get(userId='me', messageId=email_id, id=attachment_id).execute()
+            data = attachment.get('data')
+            if not data:
+                return f"Error: Attachment {attachment_id} has no data."
+            
+            file_data = base64.urlsafe_b64decode(data.encode('UTF-8'))
+            
+            downloads_path = os.path.expanduser("~/Downloads")
+            full_path = os.path.join(downloads_path, filename)
+            
+            with open(full_path, 'wb') as f:
+                f.write(file_data)
+            
+            return f"Attachment successfully downloaded and saved to: {full_path}"
+        except Exception as error:
+            return f"An error occurred downloading the attachment: {error}"
 
     def delete_message(self, email_id: str = Field(description='The ID of the email to delete.'), account: str = Field(personal_creds, description="The account to use. Valid options: \'personal\' (default), \'work\'.")) -> str:
         """
