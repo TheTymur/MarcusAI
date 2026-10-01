@@ -428,8 +428,8 @@ class GmailClient:
                     pass
 
             body = parsed['body']
-            if len(body) > 2000:
-                body = body[:2000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
+            if len(body) > 4000:
+                body = body[:4000] + "\n\n...[EMAIL BODY TRUNCATED TO SAVE TOKENS]..."
                 
             cc_string = f" | Cc: {parsed['cc']}" if parsed['cc'] else ""
             labels_str = ", ".join(parsed['labels']) if parsed['labels'] else "None"
@@ -437,7 +437,14 @@ class GmailClient:
             if parsed.get('attachments'):
                 att_info = [f"{a['filename']} (ID: {a['attachmentId']})" for a in parsed['attachments']]
                 attachments_str = f" | Attachments: {', '.join(att_info)}"
-            return f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} | Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} | References: {parsed['references']}{attachments_str} | Subject: <email_subject>{parsed['subject']}</email_subject> | Body:\n<email_body>\n{body}\n</email_body>"
+            
+            return (
+                f"- ID: {email_id} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} "
+                f"| Labels: [{labels_str}] | From: {parsed['sender']} | To: {parsed['recipient']}{cc_string} "
+                f"| Reply-to: {parsed['reply_to']} | In-Reply-To: {parsed['in_reply_to']} "
+                f"| References: {parsed['references']}{attachments_str} | Subject: <email_subject>{parsed['subject']}</email_subject> "
+                f"| Body:\n<email_body>\n{body}\n</email_body>"
+            )
             
         except Exception as error:
             return f"An error occurred reading the email content: {error}"
