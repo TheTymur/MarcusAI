@@ -104,7 +104,18 @@ class GmailClient:
         body = "No Body available"
         if html_text:
             soup = BeautifulSoup(html_text, "html.parser")
-            body = soup.get_text(separator="\n", strip=True)
+            for element in soup(["script", "style"]):
+                element.decompose()
+            for br in soup.find_all("br"):
+                br.replace_with("\n")
+            for block in soup.find_all(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr"]):
+                block.insert_after(soup.new_string("\n"))
+            
+            body = soup.get_text(separator=" ", strip=True)
+            body = re.sub(r'[ \t]+', ' ', body)
+            body = re.sub(r' \n |\n | \n', '\n', body)
+            body = re.sub(r'\n{3,}', '\n\n', body)
+            body = body.strip()
         elif plain_text:
             body = plain_text
         else:
