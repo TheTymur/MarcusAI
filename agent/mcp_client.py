@@ -29,10 +29,17 @@ def make_tool_callable(session_id, tool_info):
     func_code = f"""
 async def {name}({args_str}):
     \"\"\"{desc}\"\"\"
-    import agent.mcp_client
-    session = agent.mcp_client._SESSIONS['{session_id}']
+    import sys
+    if 'agent.mcp_client' in sys.modules:
+        session = sys.modules['agent.mcp_client']._SESSIONS['{session_id}']
+    elif 'mcp_client' in sys.modules:
+        session = sys.modules['mcp_client']._SESSIONS['{session_id}']
+    else:
+        import mcp_client
+        session = mcp_client._SESSIONS['{session_id}']
+        
     kwargs = locals()
-    kwargs = {{k: v for k, v in kwargs.items() if v is not None and k not in ('agent', 'session')}}
+    kwargs = {{k: v for k, v in kwargs.items() if v is not None and k not in ('agent', 'session', 'sys')}}
     try:
         result = await session.call_tool('{name}', arguments=kwargs)
         return str(result.content[0].text) if result.content else str(result)
@@ -44,24 +51,52 @@ async def {name}({args_str}):
     return local_vars[name]
 
 class MCPClientManager:
-    def __init__(self):
-        self.server_params = StdioServerParameters(command=sys.executable, args=["-m", "mcp_servers.email_mcp_server"])
+    def __init__(self, server_modules=None):
+        """
+        Initializes MCPClientManager with a list of server modules to start.
+        Defaults to loading both email and telegram MCP servers.
+        """
+        if server_modules is None:
+            server_modules = [
+                "mcp_servers.email_mcp_server",
+                "mcp_servers.telegram_mcp_server"
+            ]
+            
+        self.server_params_list = [
+            StdioServerParameters(command=sys.executable, args=["-m", mod], show_banner=False)
+            for mod in server_modules
+        ]
         self.exit_stack = contextlib.AsyncExitStack()
-        self.session = None
-        self.session_id = str(id(self))
+        self.session_ids = []
 
     async def connect_and_get_tools(self):
-        read, write = await self.exit_stack.enter_async_context(stdio_client(self.server_params))
-        self.session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-        await self.session.initialize()
+        """Connects to all configured MCP servers and fetches all tools across them."""
+        all_tools = []
         
-        _SESSIONS[self.session_id] = self.session
-        
-        mcp_tools_list = await self.session.list_tools()
-        return [make_tool_callable(self.session_id, t) for t in mcp_tools_list.tools]
+        for params in self.server_params_list:
+            try:
+                read, write = await self.exit_stack.enter_async_context(stdio_client(params))
+                session = await self.exit_stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                
+                session_id = str(id(session))
+                _SESSIONS[session_id] = session
+                self.session_ids.append(session_id)
+                
+                mcp_tools_list = await session.list_tools()
+                for tool_info in mcp_tools_list.tools:
+                    all_tools.append(make_tool_callable(session_id, tool_info))
+            except Exception as e:
+                print(f"[System Warning]: Failed to connect to MCP server ({' '.join(params.args)}): {e}")
+                
+        return all_tools
 
     async def cleanup(self):
-        _SESSIONS.pop(self.session_id, None)
+        """Cleanly closes all active server contexts and removes sessions."""
+        for session_id in self.session_ids:
+            _SESSIONS.pop(session_id, None)
+        self.session_ids.clear()
+        
         try:
             await self.exit_stack.aclose()
         except Exception:

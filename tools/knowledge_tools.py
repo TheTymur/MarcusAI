@@ -1,5 +1,4 @@
 from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
-from typing import Optional
 import chromadb
 from pydantic import Field
 

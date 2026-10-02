@@ -12,6 +12,10 @@ from openai import AsyncOpenAI
 from agent.utils import get_tools_and_map
 from tools import VectorMemory
 from agent.mcp_client import MCPClientManager
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="google.genai")
+warnings.filterwarnings("ignore", message="Direct use of automatic function calling")
 
 LOCAL_MODEL = "lfm2:24b-a2b"
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
