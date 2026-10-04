@@ -246,57 +246,64 @@ async def start_agent():
                 gemini_chat = make_gemini_chat(current_instructions, available_tools, history=list(gemini_chat.get_history()), model=GEMINI_MODELS[0])
 
             previous_history = list(gemini_chat.get_history())
-            response = None
+            stream_succeeded = False
+            text_response = ""
+            has_function_calls = False
 
-            for _ in range(len(GEMINI_MODELS)):
-                response = await send_with_retry(gemini_chat, user_input, max_retries=2)
-                if response is not None:
+            for idx in range(current_model_index, len(GEMINI_MODELS)):
+                current_model_index = idx
+                model_name = GEMINI_MODELS[current_model_index]
+                
+                try:
+                    response = await gemini_chat.send_message_stream(user_input)
+                    has_function_calls = False
+                    output_started = False
+                    text_response = ""
+                    
+                    async for chunk in response:
+                        if getattr(chunk, "function_calls", None):
+                            has_function_calls = True
+                            continue
+                            
+                        if getattr(chunk, "text", None):
+                            if not output_started:
+                                print("\nAI (Gemini): ", end="", flush=True)
+                                output_started = True
+                            
+                            print(chunk.text, end="", flush=True)
+                            text_response += chunk.text
+                    
+                    stream_succeeded = True
                     break
                 
-                if current_model_index < len(GEMINI_MODELS) - 1:
-                    current_model_index += 1
-                    new_model = GEMINI_MODELS[current_model_index]
-                    print(f"\n[System Info]: Model failed. Switching to {new_model}...")
-                    gemini_chat = make_gemini_chat(current_instructions, available_tools, history=previous_history, model=new_model)
-                else:
-                    break
+                except Exception as e:
+                    print(f"\n[System Info]: Gemini model '{model_name}' failed with error: {e}")
+                    if idx < len(GEMINI_MODELS) - 1:
+                        next_model = GEMINI_MODELS[idx + 1]
+                        print(f"[System Info]: Switching to fallback model '{next_model}'...")
+                        gemini_chat = make_gemini_chat(current_instructions, available_tools, history=previous_history, model=next_model)
+                    else:
+                        print("[System Info]: All cloud Gemini models are currently unavailable.")
 
-            if response is None:
-                print("\n[System Info]: Cloud AI unavailable. Switching to offline mode...")
+            if not stream_succeeded:
+                print("[System Info]: Switching to local offline mode...")
                 if (await run_local(user_input)) != "done":
                     print("[System Error]: Local model failed. Please try again in a moment.\n")
                 return
 
             commit_local({"role": "user", "content": user_input})
-            text_response = ""
-            has_function_calls = False
-            output_started = False
-            
-            async for chunk in response:
-                if getattr(chunk, "function_calls", None):
-                    has_function_calls = True
-                    continue
-                    
-                if getattr(chunk, "text", None):
-                    if not output_started:
-                        print("\nAI (Gemini): ", end="", flush=True)
-                        output_started = True
-                    
-                    print(chunk.text, end="", flush=True)
-                    text_response += chunk.text
-
             commit_local({"role": "assistant", "content": text_response})
             
             if text_response:
                 print("\n\n", flush=True)
             else:
                 if has_function_calls:
-                    print("\n[System Warning]: The AI reached its maximum internal loop limit for tool calls and was stopped to prevent an infinite loop. Please provide more specific instructions or increase limits.")
+                    print("\n[System Warning]: The AI reached its maximum internal loop limit for tool calls and was stopped to prevent an infinite loop.")
                 else:
                     print(f"\n[System Warning]: Gemini returned an empty text response or stream was aborted.")
 
             await maybe_summarize_and_trim()
-
+            
         async def maybe_summarize_and_trim():
             nonlocal gemini_chat, current_model_index
             full_history = list(gemini_chat.get_history())
