@@ -59,7 +59,8 @@ class MCPClientManager:
         if server_modules is None:
             server_modules = [
                 "mcp_servers.email_mcp_server",
-                "mcp_servers.telegram_mcp_server"
+                "mcp_servers.telegram_mcp_server",
+                "mcp_servers.knowledge_mcp_server"
             ]
             
         self.server_params_list = [
