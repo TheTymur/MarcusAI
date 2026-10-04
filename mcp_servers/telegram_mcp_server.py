@@ -11,19 +11,14 @@ load_dotenv()
 
 api_id_raw = os.getenv("API_TELEGRAM_ID")
 api_hash = os.getenv("API_TELEGRAM_HASH")
-session_string = os.getenv("TELEGRAM_SESSION_STRING")
-
-if not api_id_raw or not api_hash or not session_string:
-    raise ValueError(
-        f"Missing API credentials! Ensure API_ID, API_HASH, and TELEGRAM_SESSION_STRING are set in .env file."
-    )
+    
 
 API_ID = int(api_id_raw)
 API_HASH = str(api_hash)
 
 mcp = FastMCP("Telegram Server")
 
-user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+user_client = TelegramClient("polish_session", API_ID, API_HASH)
 
 def _parse_message(msg) -> dict:
     return {

@@ -52,4 +52,6 @@ token_*
 context/
 agent/data/
 tools_schema.json
+auth_tel.py
 .agents/
+*.session
