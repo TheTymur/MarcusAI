@@ -321,10 +321,10 @@ async def delete_message_in_chat(chat_id: int = Field(description="The chat ID o
     if (err := await _ensure_ready()):
         return {"error": err}
     try:
-        result = await user_client.delete_messages(chat_id, message_id)
+        result = await user_client.delete_messages(chat_id, message_id, revoke=True)
         if result and not any(getattr(r, "pts_count", 1) for r in result):
             return {"error": f"Message {message_id} was not deleted (not found or no permission)."}
-        return {"success": f"Message {message_id} deleted from chat {chat_id}"}
+        return {"success": f"Message {message_id} deleted from chat {chat_id} for everyone."}
     except Exception as e:
         return {"error": f"Failed to delete message: {str(e)}"}
 
@@ -707,6 +707,34 @@ async def unmute_chat(
     except Exception as e:
         return {"error": f"Failed to unmute chat: {str(e)}"}
 
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
+))
+async def delete_chat(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or ID to delete.")
+) -> dict:
+    """Deletes a chat from the user's Telegram account.
+    
+    IMPORTANT:
+    1. IF the user asks to delete a chat for the first time, DO NOT call this tool immediately. Output the exact text '[TELEGRAM DELETE CHAT PREPARED]' with the target chat ID and ask for confirmation.
+    2. IF the user has ALREADY been shown '[TELEGRAM DELETE CHAT PREPARED]' in the previous turn and replied 'yes', 'confirm', or 'delete', YOU MUST EXECUTE THIS TOOL IMMEDIATELY using the chat ID from the preparation block.
+    
+    Args:
+        chat_username_or_id (str): The chat username (e.g., '@username') or ID to delete.
+    """
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        target = chat_username_or_id.strip()
+        if target.lstrip("-").isdigit():
+            target = int(target)
+        entity = await user_client.get_input_entity(target)
+        await user_client.delete_dialog(entity, revoke=True)
+        return {"success": f"Successfully deleted chat {chat_username_or_id} for everyone."}
+
+    except Exception as e:
+        return {"error": f"Failed to delete chat: {str(e)}"}
 
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)
