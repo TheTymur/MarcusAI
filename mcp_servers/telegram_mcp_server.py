@@ -736,5 +736,79 @@ async def delete_chat(
     except Exception as e:
         return {"error": f"Failed to delete chat: {str(e)}"}
 
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True
+))
+async def get_participants_in_group(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or ID of the group or channel.")
+) -> dict:
+    """Gets all participants in a group chat or channel."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        target = chat_username_or_id.strip()
+        if target.lstrip("-").isdigit():
+            target = int(target)
+        entity = await user_client.get_input_entity(target)
+        participants = await user_client.get_participants(entity, limit=100)
+        
+        parsed = []
+        for p in participants:
+            first = getattr(p, 'first_name', '') or ''
+            last = getattr(p, 'last_name', '') or ''
+            parsed.append({
+                "user_id": p.id,
+                "name": (first + " " + last).strip() or getattr(p, 'username', 'Unknown'),
+                "username": getattr(p, 'username', None)
+            })
+        return {"participants": parsed}
+    except Exception as e:
+        return {"error": f"Failed to get participants: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def search_dialogs_and_channels(
+    query: str = Field(description="The name or keyword of the channel, group, or user to search for.")
+) -> dict:
+    """Searches ALL dialogs, channels, and groups (including inactive/archived ones) by name or handle."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+        
+    search_str = query.strip().lower()
+    matches = []
+
+    try:
+        dialogs = await user_client.get_dialogs(limit=500)
+        for d in dialogs:
+            if search_str in d.name.lower():
+                matches.append({
+                    "chat_id": d.id,
+                    "name": d.name,
+                    "type": type(d.entity).__name__,
+                    "is_channel": d.is_channel,
+                    "is_group": d.is_group,
+                    "unread_count": d.unread_count
+                })
+
+        if not matches:
+            result = await user_client(functions.contacts.SearchRequest(q=query, limit=10))
+            for chat in getattr(result, 'chats', []):
+                title = getattr(chat, 'title', getattr(chat, 'username', 'Unknown'))
+                matches.append({
+                    "chat_id": utils.get_peer_id(chat),
+                    "name": title,
+                    "type": type(chat).__name__,
+                    "username": getattr(chat, 'username', None)
+                })
+
+        if not matches:
+            return {"message": f"No channels or chats found matching '{query}' across your dialogs or global search."}
+
+        return {"matches": matches}
+
+    except Exception as e:
+        return {"error": f"Failed to search dialogs: {str(e)}"}
+
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)

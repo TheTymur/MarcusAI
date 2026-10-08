@@ -5,6 +5,9 @@ import time
 import asyncio
 
 from dotenv import load_dotenv
+
+load_dotenv() 
+
 from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
@@ -21,19 +24,20 @@ GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 MAX_LOCAL_MESSAGES = 20  
 MAX_GEMINI_HISTORY = 40   
 
-with open("context/identity.md", "r") as f:
+with open("context/identity.md", "r", encoding="utf-8") as f:
     role = f.read()
-with open("context/user.md", "r") as f:
+with open("context/user.md", "r", encoding="utf-8") as f:
     user = f.read()
-with open("context/soul.md", "r") as f:
+with open("context/soul.md", "r", encoding="utf-8") as f:
     personality = f.read()
 
 base_instructions = role + "\n" + user + "\n" + personality
 
 memory_client = VectorMemory()
 
-load_dotenv()
 gemini_api_key = os.getenv("API_KEY_GEMINI")
+if not gemini_api_key:
+    raise RuntimeError("API_KEY_GEMINI is missing - check your .env file")
 
 gemini_client = genai.Client(api_key=gemini_api_key)
 ollama_client = AsyncOpenAI(
@@ -49,6 +53,7 @@ def make_gemini_chat(instructions, tools, history=None, model=None):
         config=types.GenerateContentConfig(
             system_instruction=instructions,
             tools=tools,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         ),
         history=history,
     )
@@ -99,8 +104,6 @@ async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60):
                 continue
             return None
         except Exception as e:
-            import traceback
-            traceback.print_exc()
             error_msg = str(e).lower()
             if any(term in error_msg for term in ["connection", "network", "socket", "nodename nor servname", "errno 8"]):
                 return None
@@ -153,16 +156,10 @@ async def start_agent():
         async def run_local(user_input):
             extra = (
                 "CRITICAL INSTRUCTION: You are running in OFFLINE FALLBACK MODE because the main cloud AI is down. "
-                "You currently have NO access to live email tools (you CANNOT read live emails, send emails, or delete emails). "
-                "If the user asks you to take an action on live emails, you MUST NOT pretend to do it. Instead, explicitly state that you cannot perform the action because you are offline.\n\n"
-                "However, you DO have access to four local databases/tools via your tools. You MUST USE YOUR TOOLS to search them instead of guessing:\n"
-                "1. `search_local_database`: Use this to search the local SQL database. All parameters (sender, subject) are OPTIONAL. If the user asks for 'latest emails' or 'recent emails', YOU MUST call this tool with NO parameters to retrieve the most recent entries. It returns exact metadata (Date, Sender, Subject).\n"
-                "2. `read_local_email`: Use this to read the full body text of a specific email from the local SQL database. You must provide the exact Email ID retrieved from `search_local_database`.\n"
-                "3. `search_knowledge_base`: Use this to search the local vector database for User Preferences, or past conversation summaries.\n"
-                "4. `get_current_date_and_time`: Use this to get the current system date and time if the user asks what time it is.\n\n"
+                "However, you STILL HAVE FULL ACCESS to all your Telegram tools via the local MCP server. "
+                "You MUST USE YOUR TOOLS to fulfill the user's request just like you normally would. Do not make excuses about being offline.\n\n"
                 "CRITICAL AUTONOMY RULES:\n"
-                "- NEVER ask the user for 'search criteria' or 'parameters' if they ask for recent emails. Just call `search_local_database` with no arguments.\n"
-                "- NEVER mock, fake, or simulate data. If you don't know the answer, call a tool.\n"
+                "- NEVER mock, fake, or simulate data. If you need to find a chat, call the search tools.\n"
                 "- NEVER stall, write long disclaimers, or make excuses. Use your tools automatically and autonomously!\n"
             )
 
@@ -201,23 +198,26 @@ async def start_agent():
                         for tool_call in message.tool_calls:
                             func = local_tool_map.get(tool_call.function.name)
                             if func:
-                                args = json.loads(tool_call.function.arguments)
-                                if asyncio.iscoroutinefunction(func):
-                                    result = await func(**args)
-                                else:
-                                    result = func(**args)
-                                
-                                tool_msg = {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.id,
-                                    "name": tool_call.function.name,
-                                    "content": str(result)
-                                }
-                                call_messages.append(tool_msg)
-                                messages_to_commit.append(tool_msg)
+                                try:
+                                    args = json.loads(tool_call.function.arguments or "{}")
+                                    if asyncio.iscoroutinefunction(func):
+                                        result = await func(**args)
+                                    else:
+                                        result = func(**args)
+                                except Exception as err:
+                                    result = {"error": str(err)}
                             else:
-                                return "error"
-                        
+                                result = {"error": f"Tool '{tool_call.function.name}' not found."}
+
+                            tool_msg = {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_call.function.name,
+                                "content": str(result),
+                            }
+                            call_messages.append(tool_msg)
+                            messages_to_commit.append(tool_msg)
+
                         iterations += 1
                         continue
                     
@@ -243,70 +243,121 @@ async def start_agent():
 
             if current_model_index != 0:
                 current_model_index = 0
-                gemini_chat = make_gemini_chat(current_instructions, available_tools, history=list(gemini_chat.get_history()), model=GEMINI_MODELS[0])
+                gemini_chat = make_gemini_chat(
+                    current_instructions, 
+                    available_tools, 
+                    history=list(gemini_chat.get_history()), 
+                    model=GEMINI_MODELS[0]
+                )
 
-            previous_history = list(gemini_chat.get_history())
-            stream_succeeded = False
-            text_response = ""
-            has_function_calls = False
+            MAX_TOOL_LOOPS = 5
+            loop_count = 0
+            current_prompt = user_input
 
-            for idx in range(current_model_index, len(GEMINI_MODELS)):
-                current_model_index = idx
-                model_name = GEMINI_MODELS[current_model_index]
-                
-                try:
-                    response = await gemini_chat.send_message_stream(user_input)
-                    has_function_calls = False
-                    output_started = False
+            while loop_count < MAX_TOOL_LOOPS:
+                loop_count += 1
+                stream_succeeded = False
+                text_response = ""
+                function_calls_to_run = []
+
+                for idx in range(current_model_index, len(GEMINI_MODELS)):
+                    if idx != current_model_index or idx > 0:
+                        gemini_chat = make_gemini_chat(
+                            current_instructions,
+                            available_tools,
+                            history=list(gemini_chat.get_history()),
+                            model=GEMINI_MODELS[idx],
+                        )
+                    current_model_index = idx
+                    model_name = GEMINI_MODELS[idx]
+
                     text_response = ""
-                    
-                    async for chunk in response:
-                        if getattr(chunk, "function_calls", None):
-                            has_function_calls = True
-                            continue
-                            
-                        if getattr(chunk, "text", None):
-                            if not output_started:
-                                print("\nAI (Gemini): ", end="", flush=True)
-                                output_started = True
-                            
-                            print(chunk.text, end="", flush=True)
-                            text_response += chunk.text
-                    
-                    stream_succeeded = True
-                    break
-                
-                except Exception as e:
-                    print(f"\n[System Info]: Gemini model '{model_name}' failed with error: {e}")
-                    if idx < len(GEMINI_MODELS) - 1:
-                        next_model = GEMINI_MODELS[idx + 1]
-                        print(f"[System Info]: Switching to fallback model '{next_model}'...")
-                        gemini_chat = make_gemini_chat(current_instructions, available_tools, history=previous_history, model=next_model)
-                    else:
-                        print("[System Info]: All cloud Gemini models are currently unavailable.")
+                    function_calls_to_run = []
 
-            if not stream_succeeded:
-                print("[System Info]: Switching to local offline mode...")
-                if (await run_local(user_input)) != "done":
-                    print("[System Error]: Local model failed. Please try again in a moment.\n")
-                return
+                    response = await send_with_retry(gemini_chat, current_prompt, max_retries=2, base_delay=2)
+                    if response is None:
+                        continue
+
+                    try:
+                        async for chunk in response:
+                            candidates = getattr(chunk, "candidates", None)
+                            if not candidates or not candidates[0].content:
+                                continue
+                            for part in candidates[0].content.parts or []:
+                                if getattr(part, "function_call", None):
+                                    function_calls_to_run.append(part.function_call)
+                                elif getattr(part, "text", None):
+                                    text_response += part.text
+
+                        stream_succeeded = True
+                        break
+
+                    except Exception as e:
+                        print(f"\n[System Info]: Stream interrupted on model '{model_name}': {e}")
+                        error_msg = str(e).lower()
+
+                        if "503" in error_msg or "unavailable" in error_msg:
+                            print("[System Info]: 503 Service Unavailable mid-stream. Waiting 2s before fallback...")
+                            await asyncio.sleep(2)
+
+                        if idx < len(GEMINI_MODELS) - 1:
+                            print(f"[System Info]: Switching to fallback model '{GEMINI_MODELS[idx + 1]}'...")
+
+                if not stream_succeeded:
+                    print("[System Info]: All cloud Gemini models unavailable. Switching to local offline mode...")
+                    await run_local(user_input)
+                    return
+
+                if function_calls_to_run:
+                    tool_responses = []
+                    for call in function_calls_to_run:
+                        tool_name = call.name
+                        tool_args = call.args or {}
+                        
+                        matching_wrapper = next(
+                            (w for w in available_tools if getattr(w, '__name__', '') == tool_name or getattr(w, 'name', '') == tool_name), 
+                            None
+                        )
+                        
+                        if matching_wrapper:
+                            try:
+                                if asyncio.iscoroutinefunction(matching_wrapper):
+                                    result = await matching_wrapper(**tool_args)
+                                else:
+                                    result = matching_wrapper(**tool_args)
+                            except Exception as err:
+                                result = {"error": str(err)}
+                        else:
+                            result = {"error": f"Tool '{tool_name}' not found."}
+
+                        tool_responses.append(
+                            types.Part.from_function_response(
+                                name=tool_name,
+                                response={"result": result}
+                            )
+                        )
+
+                    current_prompt = tool_responses  
+                    continue
+
+                if text_response:
+                    print(f"\nAI (Gemini): {text_response}\n", flush=True)
+
+                break
 
             commit_local({"role": "user", "content": user_input})
             commit_local({"role": "assistant", "content": text_response})
             
-            if text_response:
-                print("\n\n", flush=True)
-            else:
-                if has_function_calls:
-                    print("\n[System Warning]: The AI reached its maximum internal loop limit for tool calls and was stopped to prevent an infinite loop.")
-                else:
-                    print(f"\n[System Warning]: Gemini returned an empty text response or stream was aborted.")
-
             await maybe_summarize_and_trim()
-            
+
         async def maybe_summarize_and_trim():
             nonlocal gemini_chat, current_model_index
             full_history = list(gemini_chat.get_history())
+            
+            for msg in full_history:
+                if getattr(msg, "role", None) is None:
+                    msg.role = "user"
+            
             if len(full_history) <= MAX_GEMINI_HISTORY:
                 return
 
@@ -314,7 +365,6 @@ async def start_agent():
             for msg in full_history:
                 if getattr(msg, "parts", None) and getattr(msg.parts[0], "text", None):
                     history_text += f"{msg.role.capitalize()}: {msg.parts[0].text}\n"
-
             summary_prompt = (
                 "Summarize the following conversation in 2-3 sentences. "
                 "Focus strictly on factual information provided by the user, key decisions made, "
