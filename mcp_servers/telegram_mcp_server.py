@@ -8,7 +8,6 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 from telethon.tl.types import MessageActionPhoneCall, InputMessagesFilterPinned
 
-
 load_dotenv()
 
 api_id_raw = os.getenv("API_TELEGRAM_ID")
@@ -917,7 +916,100 @@ async def kick_participant_from_group(
         return {"error": f"Failed to kick participant: {str(e)}"}
 
 
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def create_broadcast_channel(
+    name: str = Field(description="The name of the broadcast channel to create."),
+    description: str = Field(description="The description of the broadcast channel to create.")
+) -> dict:
+    """Creates a one-way broadcast channel."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        result = await user_client(functions.channels.CreateChannelRequest(
+            title=name,
+            about=description,
+            broadcast=True,
+            megagroup=False
+        ))
+        created_chat = result.chats[0] if getattr(result, "chats", None) else None
+        title = created_chat.title if created_chat else name
+        chat_id = created_chat.id if created_chat else None
+        return {"success": f"Successfully created channel '{title}'.", "chat_id": chat_id}
+    except Exception as e:
+        return {"error": f"Failed to create channel: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def create_megagroup(
+    name: str = Field(description="The name of the megagroup to create."),
+    description: str = Field(description="The description of the megagroup to create.")
+) -> dict:
+    """Creates a two-way group chat (megagroup where everyone can message)."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        result = await user_client(functions.channels.CreateChannelRequest(
+            title=name,
+            about=description,
+            megagroup=True,
+            broadcast=False
+        ))
+        created_chat = result.chats[0] if getattr(result, "chats", None) else None
+        title = created_chat.title if created_chat else name
+        chat_id = created_chat.id if created_chat else None
+        return {"success": f"Successfully created megagroup '{title}'.", "chat_id": chat_id}
+    except Exception as e:
+        return {"error": f"Failed to create megagroup: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def add_participant(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or numeric ID of the group to add to."),
+    participant_username_or_id: str = Field(description="The username (e.g., '@username') or numeric ID of the participant to add (or comma-separated for multiple).")
+) -> dict:
+    """Adds a participant to a group chat or channel."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        clean_chat = int(chat_username_or_id) if (chat_username_or_id.startswith('-') and chat_username_or_id[1:].isdigit()) or chat_username_or_id.isdigit() else chat_username_or_id
+        channel_entity = await user_client.get_input_entity(clean_chat)
+        
+        users_raw = [u.strip() for u in participant_username_or_id.split(",") if u.strip()]
+        user_entities = []
+        for u in users_raw:
+            clean_u = int(u) if (u.startswith('-') and u[1:].isdigit()) or u.isdigit() else u
+            user_entities.append(await user_client.get_input_entity(clean_u))
+
+        await user_client(functions.channels.InviteToChannelRequest(
+            channel=channel_entity,
+            users=user_entities
+        ))
+        return {"success": f"Successfully added {participant_username_or_id} to the group {chat_username_or_id}."}
+    except Exception as e:
+        return {"error": f"Failed to add participant: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
+))
+async def remove_participant(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or numeric ID of the group to remove from."),
+    participant_username_or_id: str = Field(description="The username (e.g., '@username') or numeric ID of the participant to remove.")
+) -> dict:
+    """Removes a participant from a group chat or channel."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        clean_chat = int(chat_username_or_id) if (chat_username_or_id.startswith('-') and chat_username_or_id[1:].isdigit()) or chat_username_or_id.isdigit() else chat_username_or_id
+        clean_user = int(participant_username_or_id) if (participant_username_or_id.startswith('-') and participant_username_or_id[1:].isdigit()) or participant_username_or_id.isdigit() else participant_username_or_id
+        await user_client.kick_participant(clean_chat, clean_user)
+        return {"success": f"Successfully removed {participant_username_or_id} from the group {chat_username_or_id}."}
+    except Exception as e:
+        return {"error": f"Failed to remove participant: {str(e)}"}
+
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)
-
 
