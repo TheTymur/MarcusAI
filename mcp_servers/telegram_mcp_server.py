@@ -22,7 +22,6 @@ API_HASH = str(api_hash)
 
 mcp = FastMCP("Telegram Server")
 
-# Session file name (kept as before so your existing login keeps working).
 SESSION_NAME = os.getenv("TELEGRAM_SESSION_NAME", "ukranian_session")
 user_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 
@@ -239,9 +238,10 @@ async def get_chat_id(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
 ))
 async def get_recent_chats(limit: int = Field(5, description="The number of recent chats to retrieve.")) -> dict:
-    """Gets the most recent active conversations/dialogs.
-    IMPORTANT: This tool gets the most recent chats you have interacted with on Telegram.
-    Use this tool when you need to see who you recently talked to or get their chat IDs.
+    """Gets the most recent active conversations/dialogs along with their unread status.
+    IMPORTANT: This tool gets the most recent chats you have interacted with on Telegram,
+    including unread message counts, whether the chat is pinned or archived, and the last message snippet.
+    Use this tool when you need to see who you recently talked to, check unread status, or get chat IDs.
     Args:
         limit (int): The number of recent chats to retrieve.
     """
@@ -253,13 +253,48 @@ async def get_recent_chats(limit: int = Field(5, description="The number of rece
         return {"chats": [{
             "chat_id": d.id,
             "name": d.name,
+            "unread_count": d.unread_count,
+            "unread_mentions_count": d.unread_mentions_count,
             "is_group": d.is_group,
             "is_channel": d.is_channel,
             "is_bot": getattr(d.entity, 'bot', False),
-            "phone": getattr(d.entity, 'phone', None)
+            "phone": getattr(d.entity, 'phone', None),
+            "pinned": bool(d.pinned),
+            "archived": bool(d.archived),
+            "last_message": d.message.text if d.message and d.message.text else ("[Media/Other]" if d.message else None)
         } for d in dialogs]}
     except Exception as e:
         return {"error": f"Failed to get recent chats: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def get_unread_chats(limit: int = Field(10, description="The maximum number of unread chats to retrieve.")) -> dict:
+    """Gets all conversations/dialogs that currently have unread messages.
+    Returns the chat name, chat ID, unread message count, and the last message snippet.
+    """
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        dialogs = await user_client.get_dialogs(limit=100)
+        unread = []
+        for d in dialogs:
+            if d.unread_count > 0:
+                unread.append({
+                    "chat_id": d.id,
+                    "name": d.name,
+                    "unread_count": d.unread_count,
+                    "unread_mentions_count": d.unread_mentions_count,
+                    "is_group": d.is_group,
+                    "is_channel": d.is_channel,
+                    "pinned": bool(d.pinned),
+                    "last_message": d.message.text if d.message and d.message.text else ("[Media/Other]" if d.message else None)
+                })
+                if len(unread) >= limit:
+                    break
+        return {"unread_chats": unread, "total_unread_chats": len(unread)}
+    except Exception as e:
+        return {"error": f"Failed to get unread chats: {str(e)}"}
 
 @mcp.tool(annotations=ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
@@ -307,6 +342,51 @@ async def read_whole_chat(
         return {"messages": messages}
     except Exception as e:
         return {"error": f"Failed to read whole chat: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def mark_chat_as_read(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@channel') or numeric ID (e.g., '-1001159790889' or '12345678') to mark as read.")
+) -> dict:
+    """Marks all messages in a Telegram chat, group, or channel as read, clearing the unread notification badge and mentions.
+    Use this tool whenever the user asks to mark a chat as read, clear unread messages, or dismiss notification badges.
+    Args:
+        chat_username_or_id (str): The chat username or numeric chat ID.
+    """
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        clean_id = chat_username_or_id.strip()
+        peer = int(clean_id) if (clean_id.startswith('-') and clean_id[1:].isdigit()) or clean_id.isdigit() else clean_id
+        entity = await user_client.get_input_entity(peer)
+        
+        latest_msgs = await user_client.get_messages(entity, limit=1)
+        max_id = latest_msgs[0].id if latest_msgs else 0
+        
+        await user_client.send_read_acknowledge(entity, max_id=max_id, clear_mentions=True, clear_reactions=True)
+        return {"success": f"Successfully marked all messages as read in chat '{chat_username_or_id}'."}
+    except Exception as e:
+        return {"error": f"Failed to mark chat as read: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def mark_all_chats_as_read() -> dict:
+    """Marks all chats, channels, and groups with unread messages as read across the account."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        dialogs = await user_client.get_dialogs(limit=200)
+        marked = []
+        for d in dialogs:
+            if d.unread_count > 0 or d.unread_mentions_count > 0:
+                max_id = d.message.id if d.message else 0
+                await user_client.send_read_acknowledge(d.input_entity, max_id=max_id, clear_mentions=True, clear_reactions=True)
+                marked.append(d.name)
+        return {"success": f"Successfully marked {len(marked)} chat(s) as read.", "marked_chats": marked}
+    except Exception as e:
+        return {"error": f"Failed to mark all chats as read: {str(e)}"}
 
 @mcp.tool(annotations=ToolAnnotations(
     readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
@@ -742,13 +822,14 @@ async def delete_chat(
 async def get_participants_in_group(
     chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or ID of the group or channel.")
 ) -> dict:
-    """Gets all participants in a group chat or channel."""
+    """Gets all participants in a group chat or channel, including whether they are an admin."""
     if (err := await _ensure_ready()):
         return {"error": err}
     try:
         target = chat_username_or_id.strip()
         if target.lstrip("-").isdigit():
             target = int(target)
+            
         entity = await user_client.get_input_entity(target)
         participants = await user_client.get_participants(entity, limit=100)
         
@@ -756,15 +837,24 @@ async def get_participants_in_group(
         for p in participants:
             first = getattr(p, 'first_name', '') or ''
             last = getattr(p, 'last_name', '') or ''
+            
+            is_admin = False
+            if hasattr(p, 'participant') and p.participant:
+                role_type = type(p.participant).__name__
+                if 'Admin' in role_type or 'Creator' in role_type:
+                    is_admin = True
+                    
             parsed.append({
                 "user_id": p.id,
                 "name": (first + " " + last).strip() or getattr(p, 'username', 'Unknown'),
-                "username": getattr(p, 'username', None)
+                "username": getattr(p, 'username', None),
+                "is_admin": is_admin
             })
+            
         return {"participants": parsed}
+        
     except Exception as e:
         return {"error": f"Failed to get participants: {str(e)}"}
-
 @mcp.tool(annotations=ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
 ))
@@ -810,5 +900,24 @@ async def search_dialogs_and_channels(
     except Exception as e:
         return {"error": f"Failed to search dialogs: {str(e)}"}
 
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
+))
+async def kick_participant_from_group(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or ID of the group to kick from."),
+    participant_username_or_id: str = Field(description="The chat username (e.g., '@username') or ID of the participant to kick.")
+) -> dict:
+    """Kicks a participant from a group chat."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        await user_client.kick_participant(chat_username_or_id, participant_username_or_id)
+        return {"success": f"Successfully kicked {participant_username_or_id} from the group {chat_username_or_id}."}
+    except Exception as e:
+        return {"error": f"Failed to kick participant: {str(e)}"}
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)
+
+

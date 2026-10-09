@@ -462,6 +462,27 @@ def remove_label(
 
 @mcp.tool(
     annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    )
+)
+def mark_email_as_read(
+    email_id: str = Field(description="The ID of the email to mark as read."),
+    account: str = Field("personal", description="The account to use. Valid options: 'personal' (default), 'work'.")
+) -> str:
+    """Marks an email as read by removing the UNREAD label.
+    Args:
+        email_id (str): The ID of the email to mark as read.
+        account (str): The account to use. Valid options: 'personal' (default), 'work'.
+    """
+    try:
+        service = manager.get_service(account)
+        service.users().messages().modify(userId="me", id=email_id, body={"removeLabelIds": ["UNREAD"]}).execute()
+        return f"Successfully marked email {email_id} as read."
+    except Exception as e:
+        return f"Error marking email as read: {e}"
+
+@mcp.tool(
+    annotations=ToolAnnotations(
         readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
     )
 )

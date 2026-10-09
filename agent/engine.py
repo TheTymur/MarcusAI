@@ -12,9 +12,8 @@ from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 
-from agent.utils import get_tools_and_map
 from tools import VectorMemory
-from agent.mcp_client import MCPClientManager
+from agent.mcp_client import MCPClientManager, ToolResult
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.genai")
@@ -23,6 +22,11 @@ LOCAL_MODEL = "lfm2:24b-a2b"
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 MAX_LOCAL_MESSAGES = 20  
 MAX_GEMINI_HISTORY = 40   
+REQUIRE_APPROVAL = True
+APPROVAL_TOOLS = {
+    "send_draft", "forward_email", "unsubscribe_from_email", "block_sender",
+    "send_message", "edit_message", "forward_message",
+}
 
 with open("context/identity.md", "r", encoding="utf-8") as f:
     role = f.read()
@@ -123,22 +127,67 @@ async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60):
 
 
 async def start_agent():
-    mcp_manager = MCPClientManager()
+    mcp_manager = MCPClientManager(approval_names=APPROVAL_TOOLS)
     
     try:
-        mcp_wrappers = await mcp_manager.connect_and_get_tools()
-        print(f"[System Info]: Loaded {len(mcp_wrappers)} tools from MCP server.")
-        
-        available_tools = mcp_wrappers
+        await mcp_manager.connect()
+        print(f"[System Info]: Loaded {mcp_manager.tool_count} tools from {mcp_manager.server_count} MCP servers.")
+
+        gemini_tools = mcp_manager.gemini_tools()
+        local_tools = mcp_manager.openai_tools()
+
+        async def ask_approval(name, args):
+            display_args = dict(args)
+            sender_info = display_args.get("sender")
+
+            if "email_id" in args and not sender_info:
+                try:
+                    from agent.data.database_manager import Emailprocessing, Emails
+                    db = Emailprocessing()
+                    em = db.session.query(Emails).filter(Emails.gmail_id == args["email_id"]).first()
+                    if em:
+                        display_args["sender"] = em.sender
+                        display_args["subject"] = em.subject
+                        sender_info = em.sender
+                    db.session.close()
+                except Exception:
+                    pass
+
+            target_label = ""
+            if sender_info:
+                target_label = f" [Sender: {sender_info}]"
+            elif "recipient" in display_args:
+                target_label = f" [Recipient: {display_args['recipient']}]"
+            elif "to_chat_id" in display_args:
+                target_label = f" [To: {display_args['to_chat_id']}]"
+            elif "chat_id" in display_args:
+                target_label = f" [Chat: {display_args['chat_id']}]"
+
+            preview = json.dumps(display_args, ensure_ascii=False, default=str)
+            if len(preview) > 500:
+                preview = preview[:500] + "..."
+            answer = await asyncio.to_thread(
+                input, f"\n[Approval needed]{target_label} {name}({preview})\nAllow? [y/N]: "
+            )
+            return answer.strip().lower() in ("y", "yes")
+
+        async def execute_tool(name, args):
+            """The single place where every tool call (Gemini or local) is executed."""
+            if REQUIRE_APPROVAL and mcp_manager.needs_approval(name):
+                if not await ask_approval(name, args):
+                    return ToolResult(
+                        "The user denied this action. Do not retry it; ask what they want instead.",
+                        is_error=True,
+                    )
+            return await mcp_manager.call(name, args)
 
         recent_memory = memory_client.get_recent_summaries(limit=3)
         current_instructions = base_instructions + "\n" + recent_memory
 
         current_model_index = 0
-        gemini_chat = make_gemini_chat(current_instructions, available_tools, model=GEMINI_MODELS[current_model_index])
+        gemini_chat = make_gemini_chat(current_instructions, gemini_tools, model=GEMINI_MODELS[current_model_index])
 
         local_messages = [{"role": "system", "content": current_instructions}]
-        local_tools, local_tool_map = get_tools_and_map(mcp_wrappers)
 
         def commit_local(*messages):
             local_messages.extend(messages)
@@ -151,7 +200,7 @@ async def start_agent():
             history = list(gemini_chat.get_history())
             history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_input)]))
             history.append(types.Content(role="model", parts=[types.Part.from_text(text=text_response)]))
-            gemini_chat = make_gemini_chat(current_instructions, available_tools, history=history, model=GEMINI_MODELS[current_model_index])
+            gemini_chat = make_gemini_chat(current_instructions, gemini_tools, history=history, model=GEMINI_MODELS[current_model_index])
 
         async def run_local(user_input):
             extra = (
@@ -175,7 +224,7 @@ async def start_agent():
                     response = await ollama_client.chat.completions.create(
                         model=LOCAL_MODEL,
                         messages=call_messages,
-                        tools=local_tools,
+                        tools=local_tools or None,
                     )
                     message = response.choices[0].message
                     
@@ -196,24 +245,20 @@ async def start_agent():
                         messages_to_commit.append(message_dict)
                         
                         for tool_call in message.tool_calls:
-                            func = local_tool_map.get(tool_call.function.name)
-                            if func:
-                                try:
-                                    args = json.loads(tool_call.function.arguments or "{}")
-                                    if asyncio.iscoroutinefunction(func):
-                                        result = await func(**args)
-                                    else:
-                                        result = func(**args)
-                                except Exception as err:
-                                    result = {"error": str(err)}
+                            name = tool_call.function.name
+                            raw_args = tool_call.function.arguments
+                            try:
+                                args = raw_args if isinstance(raw_args, dict) else json.loads(raw_args or "{}")
+                            except json.JSONDecodeError as err:
+                                outcome = ToolResult(f"Invalid JSON arguments: {err}", is_error=True)
                             else:
-                                result = {"error": f"Tool '{tool_call.function.name}' not found."}
+                                outcome = await execute_tool(name, args)
 
                             tool_msg = {
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
-                                "name": tool_call.function.name,
-                                "content": str(result),
+                                "name": name,
+                                "content": outcome.as_text(),
                             }
                             call_messages.append(tool_msg)
                             messages_to_commit.append(tool_msg)
@@ -245,7 +290,7 @@ async def start_agent():
                 current_model_index = 0
                 gemini_chat = make_gemini_chat(
                     current_instructions, 
-                    available_tools, 
+                    gemini_tools, 
                     history=list(gemini_chat.get_history()), 
                     model=GEMINI_MODELS[0]
                 )
@@ -264,7 +309,7 @@ async def start_agent():
                     if idx != current_model_index or idx > 0:
                         gemini_chat = make_gemini_chat(
                             current_instructions,
-                            available_tools,
+                            gemini_tools,
                             history=list(gemini_chat.get_history()),
                             model=GEMINI_MODELS[idx],
                         )
@@ -309,32 +354,14 @@ async def start_agent():
                     return
 
                 if function_calls_to_run:
+                    # Sequential on purpose: approval prompts need the terminal, and the
+                    # Gmail / Telegram clients inside the servers are not safe to hit concurrently.
                     tool_responses = []
                     for call in function_calls_to_run:
-                        tool_name = call.name
-                        tool_args = call.args or {}
-                        
-                        matching_wrapper = next(
-                            (w for w in available_tools if getattr(w, '__name__', '') == tool_name or getattr(w, 'name', '') == tool_name), 
-                            None
-                        )
-                        
-                        if matching_wrapper:
-                            try:
-                                if asyncio.iscoroutinefunction(matching_wrapper):
-                                    result = await matching_wrapper(**tool_args)
-                                else:
-                                    result = matching_wrapper(**tool_args)
-                            except Exception as err:
-                                result = {"error": str(err)}
-                        else:
-                            result = {"error": f"Tool '{tool_name}' not found."}
-
+                        outcome = await execute_tool(call.name, dict(call.args or {}))
+                        payload = {"error": outcome.text} if outcome.is_error else {"result": outcome.text}
                         tool_responses.append(
-                            types.Part.from_function_response(
-                                name=tool_name,
-                                response={"result": result}
-                            )
+                            types.Part.from_function_response(name=call.name, response=payload)
                         )
 
                     current_prompt = tool_responses  
@@ -344,9 +371,12 @@ async def start_agent():
                     print(f"\nAI (Gemini): {text_response}\n", flush=True)
 
                 break
+            else:
+                print("[System Warning]: Stopped after the maximum number of tool rounds without a final answer.")
 
             commit_local({"role": "user", "content": user_input})
-            commit_local({"role": "assistant", "content": text_response})
+            if text_response:
+                commit_local({"role": "assistant", "content": text_response})
             
             await maybe_summarize_and_trim()
 
@@ -387,7 +417,7 @@ async def start_agent():
             except Exception as e:
                 print(f"[System Error]: Failed to generate or save summary: {e}")
 
-            gemini_chat = make_gemini_chat(current_instructions, available_tools, history=safe_trim(full_history, keep=8), model=GEMINI_MODELS[current_model_index])
+            gemini_chat = make_gemini_chat(current_instructions, gemini_tools, history=safe_trim(full_history, keep=8), model=GEMINI_MODELS[current_model_index])
 
         while True:
             try:
