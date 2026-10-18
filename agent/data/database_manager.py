@@ -1,10 +1,13 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, Text, DateTime
+import json
+from datetime import datetime, timezone
+from typing import Optional
+from email.utils import parsedate_to_datetime
+
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Text, DateTime, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker
+
 from tools.knowledge_tools import VectorMemory
-from email.utils import parsedate_to_datetime
-from datetime import timezone
-from typing import Optional
  
 Base = declarative_base()
 memory_client = VectorMemory()
@@ -36,18 +39,29 @@ class Emailprocessing:
         SessionLocal = sessionmaker(bind=engine)
         self.session = SessionLocal()
 
-
-
-    def search_email_metadata(self, sender: Optional[str] = None, subject: Optional[str] = None, limit: int = 5, account: Optional[str] = None) -> str:
+    def search_email_metadata(
+        self, 
+        sender: Optional[str] = None, 
+        subject: Optional[str] = None, 
+        query_text: Optional[str] = None,
+        has_attachments: Optional[bool] = None,
+        after_date: Optional[str] = None,
+        before_date: Optional[str] = None,
+        limit: int = 15, 
+        account: Optional[str] = None
+    ) -> str:
         """
-        Searches the local SQL database for emails by sender or subject.
-        Use this tool when you need to find exact metadata, count emails from a specific person, 
-        or check if an email about a specific topic exists.
+        Searches the local SQL database for emails by sender, subject, full-text query, date, or attachments.
         
         Args:
             sender (str, optional): A name or email address to search for in the 'From' field.
             subject (str, optional): Keywords to search for in the email subject.
-            limit (int, optional): Maximum number of results to return.
+            query_text (str, optional): Keywords to search across subject, body text, and sender.
+            has_attachments (bool, optional): If True, only returns emails with attachments.
+            after_date (str, optional): Filter emails on or after this date (YYYY-MM-DD).
+            before_date (str, optional): Filter emails on or before this date (YYYY-MM-DD).
+            limit (int, optional): Maximum number of results to return (default 15).
+            account (str, optional): Account to filter by ('personal' or 'work').
         """
         try:
             query = self.session.query(Emails)
@@ -56,19 +70,56 @@ class Emailprocessing:
                 query = query.filter(Emails.sender.ilike(f"%{sender}%"))
             if subject:
                 query = query.filter(Emails.subject.ilike(f"%{subject}%"))
+            if query_text:
+                query = query.filter(
+                    or_(
+                        Emails.subject.ilike(f"%{query_text}%"),
+                        Emails.body.ilike(f"%{query_text}%"),
+                        Emails.sender.ilike(f"%{query_text}%"),
+                    )
+                )
+            if has_attachments is True:
+                query = query.filter(Emails.attachments.isnot(None), Emails.attachments != "[]", Emails.attachments != "")
+            elif has_attachments is False:
+                query = query.filter(or_(Emails.attachments.is_(None), Emails.attachments == "[]", Emails.attachments == ""))
+            if after_date:
+                parsed_after = self.parse_date(after_date)
+                if parsed_after:
+                    query = query.filter(Emails.date >= parsed_after)
+            if before_date:
+                parsed_before = self.parse_date(before_date)
+                if parsed_before:
+                    query = query.filter(Emails.date <= parsed_before)
             if account:
                 query = query.filter(Emails.account_name.ilike(f"%{account}%"))
                 
-            
-            results = query.order_by(Emails.date.desc()).limit(limit).all()
+            results = query.order_by(Emails.date.desc().nullslast()).limit(limit).all()
             
             if not results:
                 return "No emails found in the local database matching those criteria."
                 
             formatted = []
             for email in results:
+                date_str = email.date.strftime('%Y-%m-%d %H:%M') if email.date else "Unknown"
+                att_info = ""
+                if email.attachments:
+                    try:
+                        atts = json.loads(email.attachments)
+                        if isinstance(atts, list) and atts:
+                            names = [a.get("filename", "file") for a in atts if isinstance(a, dict)]
+                            if names:
+                                att_info = f" | Attachments: [{', '.join(names)}]"
+                    except Exception:
+                        att_info = f" | Attachments: {email.attachments[:50]}"
+                
+                snippet = ""
+                if email.body:
+                    clean_snip = " ".join(email.body.split())[:120]
+                    if clean_snip:
+                        snippet = f" | Snippet: {clean_snip}..."
+
                 formatted.append(
-                    f"- ID: {email.gmail_id} | Date: {email.date} | From: {email.sender} | To: {email.recipient} | Subject: <email_subject>{email.subject}</email_subject> | Account: {email.account_name}"
+                    f"- ID: {email.gmail_id} | Date: {date_str} | From: {email.sender} | To: {email.recipient} | Subject: <email_subject>{email.subject}</email_subject>{att_info}{snippet} | Account: {email.account_name}"
                 )
             return "\n".join(formatted)
             
@@ -98,12 +149,25 @@ class Emailprocessing:
         except Exception as e:
             return f"Error reading email from local database: {e}"
 
-
     def parse_date(self, raw):
+        if not raw or raw == "Unknown":
+            return None
+        if isinstance(raw, datetime):
+            return raw
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except (ValueError, TypeError):
+                pass
         try:
             dt = parsedate_to_datetime(raw)
-            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            if dt:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
         except (TypeError, ValueError):
+            pass
+        try:
+            return datetime.fromisoformat(raw.replace('Z', '+00:00')).replace(tzinfo=None)
+        except Exception:
             return None
 
 
@@ -155,13 +219,30 @@ class Emailprocessing:
 
     def store_email(self, message_id, gmail_id, sender, recipient, subject, date, clean_body, account, attachments=None):
         try:
+            parsed_d = self.parse_date(date)
+            existing = self.session.query(Emails).filter(Emails.gmail_id == gmail_id).first()
+            if existing:
+                updated = False
+                if clean_body and (not existing.body or len(clean_body) > len(existing.body)):
+                    existing.body = clean_body
+                    updated = True
+                if attachments and not existing.attachments:
+                    existing.attachments = attachments
+                    updated = True
+                if parsed_d and not existing.date:
+                    existing.date = parsed_d
+                    updated = True
+                if updated:
+                    self.session.commit()
+                return False
+
             new_email = Emails(
                 message_id=message_id,
                 gmail_id=gmail_id,
                 sender=sender,
                 recipient=recipient,
                 subject=subject,
-                date=self.parse_date(date),
+                date=parsed_d,
                 body=clean_body,
                 account_name=account,
                 attachments=attachments
@@ -172,6 +253,9 @@ class Emailprocessing:
             return True
 
         except IntegrityError:
+            self.session.rollback()
+            return False
+        except Exception:
             self.session.rollback()
             return False    
 

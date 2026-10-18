@@ -34,7 +34,7 @@ class VectorMemory:
         except Exception as error:
             return f"Error adding memory: {error}"
 
-    def search(self, query: str, where_account: str | None = None, n_results: int = 3) -> str:
+    def search(self, query: str, where_account: str | None = None, n_results: int = 10) -> str:
         try:
             query_args = {"query_texts": [query], "n_results": n_results}
             if where_account:
@@ -104,13 +104,16 @@ def search_knowledge_base(
     where_account: Annotated[
         str | None, Field(description="Optional account filter, e.g. 'work' or 'personal'.")
     ] = None,
+    limit: Annotated[
+        int, Field(description="Maximum number of memory chunks to retrieve (default 10).")
+    ] = 10,
 ) -> str:
     """
     Searches the vector database for past emails, documents, or knowledge.
     Use this tool when you need to recall previous interactions, retrieve standard
     operating procedures, or find context that is not in the current chat history.
     """
-    return memory.search(query, where_account)
+    return memory.search(query, where_account, n_results=limit)
 
 
 @mcp.tool(annotations=ToolAnnotations(

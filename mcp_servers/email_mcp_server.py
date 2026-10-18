@@ -179,17 +179,28 @@ manager = GmailServiceManager()
     )
 )
 def search_local_database(
-    sender: str = Field(None, description="The sender email address to filter by (partial match)."), 
+    query: str = Field(None, description="General search keyword matching subject, body text, or sender (e.g. flight number, destination, booking reference, airline)."), 
+    sender: str = Field(None, description="The sender email address or name to filter by (partial match)."), 
     subject: str = Field(None, description="The subject to filter by (partial match)."), 
+    has_attachments: bool = Field(None, description="Filter for emails that have file attachments (e.g. PDF boarding passes/tickets)."),
+    after_date: str = Field(None, description="Filter emails on or after this date (YYYY-MM-DD)."),
+    before_date: str = Field(None, description="Filter emails on or before this date (YYYY-MM-DD)."),
+    limit: int = Field(15, description="The maximum number of emails to return (default 15)."),
     account: str = Field("personal", description="The account to use. Valid options: 'personal' (default), 'work'.")
 ) -> str:
-    """Search the local SQLite database for emails matching specific criteria.
-    Args:
-        sender (str, optional): The sender email address to filter by. Uses partial matching.
-        subject (str, optional): The subject to filter by. Uses partial matching.
-        account (str): The account to use. Valid options: 'personal' (default), 'work'.
+    """Search the local SQLite database for cached emails matching specific criteria.
+    Supports full-text keyword search across subject and body, sender filtering, date ranges, and attachment checks.
     """
-    return manager.db_manager.search_email_metadata(sender, subject)
+    return manager.db_manager.search_email_metadata(
+        sender=sender,
+        subject=subject,
+        query_text=query,
+        has_attachments=has_attachments,
+        after_date=after_date,
+        before_date=before_date,
+        limit=limit,
+        account=account
+    )
 
 @mcp.tool(
     annotations=ToolAnnotations(
@@ -214,7 +225,7 @@ def read_local_email(
     )
 )
 def read_recent_emails(
-    limit: int = Field(5, description="The maximum number of emails to return."), 
+    limit: int = Field(10, description="The maximum number of emails to return (default 10)."), 
     account: str = Field("personal", description="The account to use. Valid options: 'personal' (default), 'work'.")
 ) -> str:
     """Reads the most recent emails from the user's Gmail inbox. 
@@ -236,7 +247,10 @@ def read_recent_emails(
             txt = service.users().messages().get(userId="me", id=msg["id"], format="metadata", metadataHeaders=["From", "To", "Subject", "Date", "Message-ID"]).execute()
             parsed = manager.parse_and_cache_email(txt, account)
             is_read = "UNREAD" not in parsed['labels']
-            email_data.append(f"- ID: {msg['id']} | Read: {is_read} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject>")
+            snippet = txt.get("snippet", "")
+            clean_snip = re.sub(r'\s+', ' ', snippet).strip()
+            snip_str = f" | Snippet: {clean_snip[:150]}..." if clean_snip else ""
+            email_data.append(f"- ID: {msg['id']} | Read: {is_read} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject>{snip_str}")
     
         return "\n".join(email_data)
 
@@ -249,20 +263,27 @@ def read_recent_emails(
     )
 )
 def search_emails(
-    query: str = Field(description="The search query string (like in Gmail search bar)."), 
-    limit: int = Field(5, description="The maximum number of emails to return."),
+    query: str = Field(
+        description=(
+            "The search query string using Gmail search syntax. Examples:\n"
+            "- 'after:2023/01/01 flight OR itinerary OR boarding'\n"
+            "- 'from:wizzair -offers -newsletter'\n"
+            "- 'from:ryanair has:attachment filename:pdf'\n"
+            "- 'subject:(flight OR ticket OR booking OR confirmation)'\n"
+            "- 'from:(wizzair OR ryanair OR lot) after:2023/01/01 -marketing'"
+        )
+    ), 
+    limit: int = Field(20, description="The maximum number of emails to return (default 20, max 100). Use higher limits (25-50) when scanning across years or looking for all receipts/tickets."),
     account: str = Field("personal", description="The account to use. Valid options: 'personal' (default), 'work'.")
 ) -> str:
     """Searches for emails in the user's Gmail account based on a query. 
+    Supports standard Gmail search syntax including 'after:YYYY/MM/DD', 'before:YYYY/MM/DD', 'has:attachment', 'filename:pdf', 'from:...', and negative exclusion filters like '-marketing -offers'.
+    Returns email IDs, dates, senders, subjects, and decoded body snippets.
     IMPORTANT: This returns a list of emails. Each email has an 'ID' field. You MUST save and use this exact 'ID' if you need to read the full content, reply, forward, or delete the email later.
-    Args:
-        query (str): The search query string (like in Gmail search bar).
-        limit (int): The maximum number of emails to return.
-        account (str): The account to use. Valid options: 'personal' (default), 'work'.
     """
     try:
         service = manager.get_service(account)
-        results = service.users().messages().list(userId="me", q=query, maxResults=limit).execute()
+        results = service.users().messages().list(userId="me", q=query, maxResults=min(limit, 100)).execute()
         messages = results.get("messages", [])
 
         if not messages:
@@ -272,7 +293,10 @@ def search_emails(
         for msg in messages:
             txt = service.users().messages().get(userId="me", id=msg["id"], format="metadata", metadataHeaders=["From", "To", "Subject", "Date", "Message-ID"]).execute()
             parsed = manager.parse_and_cache_email(txt, account)
-            email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject>")
+            snippet = txt.get("snippet", "")
+            clean_snip = re.sub(r'\s+', ' ', snippet).strip()
+            snip_str = f" | Snippet: {clean_snip[:160]}..." if clean_snip else ""
+            email_data.append(f"- ID: {msg['id']} | Message-ID: {parsed['message_id']} | Date: {parsed['date']} | From: {parsed['sender']} | To: {parsed['recipient']} | Subject: <email_subject>{parsed['subject']}</email_subject>{snip_str}")
     
         return "\n".join(email_data)
 

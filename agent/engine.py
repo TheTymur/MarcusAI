@@ -173,6 +173,10 @@ async def start_agent():
 
         async def execute_tool(name, args):
             """The single place where every tool call (Gemini or local) is executed."""
+            args_str = json.dumps(args, ensure_ascii=False) if args else ""
+            if len(args_str) > 100:
+                args_str = args_str[:100] + "...}"
+
             if REQUIRE_APPROVAL and mcp_manager.needs_approval(name):
                 if not await ask_approval(name, args):
                     return ToolResult(
@@ -295,7 +299,7 @@ async def start_agent():
                     model=GEMINI_MODELS[0]
                 )
 
-            MAX_TOOL_LOOPS = 5
+            MAX_TOOL_LOOPS = 15
             loop_count = 0
             current_prompt = user_input
 

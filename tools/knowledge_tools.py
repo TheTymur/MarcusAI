@@ -38,7 +38,7 @@ class VectorMemory:
         print("[System Info]: Saving user preference...")
         return self.add_memory(fact, "user_preference", int(time.time()))
     
-    def search_knowledge_base(self, query: str = Field(description="The query to search the knowledge base for."), where_account: str = Field(None, description="Optional account filter, e.g. 'work' or 'personal'.")) -> str:
+    def search_knowledge_base(self, query: str = Field(description="The query to search the knowledge base for."), where_account: str = Field(None, description="Optional account filter, e.g. 'work' or 'personal'."), limit: int = Field(10, description="Maximum number of results (default 10).")) -> str:
         """
         Searches the vector database for past emails, documents, or knowledge.
         Use this tool when you need to recall previous interactions, retrieve standard 
@@ -48,7 +48,7 @@ class VectorMemory:
         try: 
             query_args = {
                 "query_texts": [query],
-                "n_results": 3
+                "n_results": limit
             }
 
             if where_account:
