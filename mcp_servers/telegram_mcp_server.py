@@ -1010,6 +1010,38 @@ async def remove_participant(
     except Exception as e:
         return {"error": f"Failed to remove participant: {str(e)}"}
 
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+))
+async def pin_chat(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or numeric ID of the group to pin.")
+) -> dict:
+    """Pins a chat to the top of the dialog list."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        clean_chat = int(chat_username_or_id) if (chat_username_or_id.startswith('-') and chat_username_or_id[1:].isdigit()) or chat_username_or_id.isdigit() else chat_username_or_id
+        await user_client(functions.messages.ToggleDialogPinRequest(peer=clean_chat, pinned=True))
+        return {"success": f"Successfully pinned chat {chat_username_or_id}."}
+    except Exception as e:
+        return {"error": f"Failed to pin chat: {str(e)}"}
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
+))
+async def unpin_chat(
+    chat_username_or_id: str = Field(description="The chat username (e.g., '@username') or numeric ID of the group to unpin.")
+) -> dict:
+    """Unpins a chat from the top of the dialog list."""
+    if (err := await _ensure_ready()):
+        return {"error": err}
+    try:
+        clean_chat = int(chat_username_or_id) if (chat_username_or_id.startswith('-') and chat_username_or_id[1:].isdigit()) or chat_username_or_id.isdigit() else chat_username_or_id
+        await user_client(functions.messages.ToggleDialogPinRequest(peer=clean_chat, pinned=False))
+        return {"success": f"Successfully unpinned chat {chat_username_or_id}."}
+    except Exception as e:
+        return {"error": f"Failed to unpin chat: {str(e)}"}
+
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)
 
