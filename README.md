@@ -108,6 +108,48 @@ flowchart TD
 
 ---
 
+## Modular Persona & Context Architecture (`context/`)
+
+Marcus splits his system instructions into a decoupled **tripartite context engine** inside the `context/` directory. Rather than relying on a hardcoded monolithic prompt, Marcus dynamically stitches together three distinct markdown layers at boot time (`agent/engine.py`):
+
+```text
+context/
+├── identity.md     # Role, operational constraints, MCP rules, and summarization templates
+├── soul.md         # Personality, sarcastic tone, anti-fluff rules, and communication style
+└── user.md         # Personal profile, contacts, and domain priorities (customizable)
+```
+
+Each layer can be adjusted independently without touching a single line of Python code:
+
+### 1. `identity.md` — Operational Guardrails & Hardcoded Safety
+Defines Marcus's executive responsibilities, MCP boundaries, and error recovery:
+* **Hardcoded Runtime Approvals (No AI Hallucination Risk)**:
+  * Marcus **does not rely on LLM self-restraint or prompt thinking** to avoid sending messages or deleting data.
+  * Instead, outbound and destructive actions (`send_draft`, `send_message`, `edit_message`, `forward_email`, `unsubscribe_from_email`, `block_sender`, `forward_message`) are **hardcoded in the bot runtime** (`agent/engine.py` & `marcus_bot.py`).
+  * Whenever Marcus calls one of these tools, the engine automatically halts execution and presents interactive `[✅ Approve]` and `[❌ Deny]` buttons in Telegram (or a `[y/N]` prompt in CLI). If denied, the tool call returns a denial error and Marcus asks what to do instead.
+* **Autonomous Execution Rules**:
+  * **Memory of Identifiers**: Automatically tracks `email_id`, `chat_id`, and `message_id` from recent tool outputs so you never have to re-supply technical IDs when issuing commands like *"reply to it"* or *"trash that"*.
+  * **Implicit Confirmation**: Casual confirmations like *"yes"*, *"do it"*, or *"okay"* trigger immediate tool invocation without redundant clarifying questions.
+  * **Sequential Tool Calling**: Forbids calling a search tool and a destructive action tool in the same turn to prevent race conditions.
+  * **Smart Search & Noise Filtering**: Automatically tunes Gmail searches to exclude marketing and newsletter noise (`-offers -marketing -newsletter`) and search for ticket or booking PDFs.
+* **Output Formatting Templates**: Standardizes clean presentation for user review:
+  * **[EMAIL DRAFT CREATED]**: Displays the drafted `To`, `Subject`, and full `Body` text so you can inspect emails before approving the send.
+  * **[OMNI-CHANNEL SUMMARIZATION]**: Clean thread digests categorized by `[GMAIL - RECEIVED]`, `[GMAIL - SENT]`, `[TELEGRAM - RECEIVED]`, and `[TELEGRAM - SENT]`.
+
+### 2. `soul.md` — Personality & Tone of Voice
+Defines Marcus's conversational flavor, attitude, and writing style:
+* **Current Default Persona**: A sarcastic, slightly cynical assistant who reluctantly helps the user, but is lightning-fast and hyper-efficient. He hates wasting time with follow-up questions and gets straight to work.
+* **Zero Corporate Fluff**: Strictly bans cliched corporate email fluff like *"I hope this email finds you well"* or *"I hope you are having a wonderful day."*
+* **Grounding Rule**: Flags uncertainty for human review instead of guessing or simulating data.
+* **How to Customize**: If you prefer a polite butler, a corporate formal assistant, or a cheerful coordinator, simply edit the `<personality>` and `<response_style>` tags in `context/soul.md` to instantly transform Marcus's voice.
+
+### 3. `user.md` — Personal Profile & Priorities (Private & Fully Customizable)
+* **What it Does**: Provides the background context Marcus needs to personalize communications: your name, location, roles, contact info, VIP contacts (family, team members), and preferred tone per platform.
+* **Customization**: Copy `context/user.md.example` to `context/user.md` and customize it with your own details.
+* **Privacy**: `context/user.md` is strictly `.gitignore`d, ensuring your personal background and private contacts never get committed to GitHub.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
