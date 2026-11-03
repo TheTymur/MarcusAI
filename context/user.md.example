@@ -1,0 +1,30 @@
+# User Omni-Channel Context (Example Template)
+
+This document contains background information about the user to help Marcus (the AI Executive Assistant) tailor communications, prioritize tasks, and manage contacts across connected platforms (e.g., Gmail, Telegram).
+
+Copy this file to `context/user.md` and customize it with your own details:
+```bash
+cp context/user.md.example context/user.md
+```
+
+## Personal & Contact Information
+- **Name:** Alex Doe
+- **Role:** Software Engineer
+- **Location:** San Francisco, CA
+- **Email:** alex.doe@example.com, alex.work@example.com
+
+## Key Personal & Family Contacts
+- **Partner / Close Contact:** Jordan Doe
+  - Telegram: `@jordandoe`
+  - Email: `jordan@example.com`
+  - Context: Shares travel bookings and family logistics.
+
+## Academic & Professional Background
+- **Technical Skills:** Python, TypeScript, SQL, Docker, LLM agent architectures.
+- **Key Experience:** AI integration, workflow automation, MCP multi-server design.
+
+## Communication Drafting Guidelines
+- **Email Tone:** Professional, concise, structured formatting with zero corporate fluff.
+- **Telegram Tone:** Brief, conversational, rapid execution.
+- **Job Applications:** Emphasize practical engineering, modern toolkits, and proactive problem solving.
+

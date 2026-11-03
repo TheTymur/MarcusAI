@@ -29,14 +29,25 @@ APPROVAL_TOOLS = {
     "send_message", "edit_message", "forward_message",
 }
 
-with open("context/identity.md", "r", encoding="utf-8") as f:
-    role = f.read()
-with open("context/user.md", "r", encoding="utf-8") as f:
-    user = f.read()
-with open("context/soul.md", "r", encoding="utf-8") as f:
-    personality = f.read()
+role = ""
+if os.path.exists("context/identity.md"):
+    with open("context/identity.md", "r", encoding="utf-8") as f:
+        role = f.read()
 
-base_instructions = role + "\n" + user + "\n" + personality
+user = ""
+if os.path.exists("context/user.md"):
+    with open("context/user.md", "r", encoding="utf-8") as f:
+        user = f.read()
+elif os.path.exists("context/user.md.example"):
+    with open("context/user.md.example", "r", encoding="utf-8") as f:
+        user = f.read()
+
+personality = ""
+if os.path.exists("context/soul.md"):
+    with open("context/soul.md", "r", encoding="utf-8") as f:
+        personality = f.read()
+
+base_instructions = f"{role}\n{user}\n{personality}".strip()
 
 memory_client = VectorMemory()
 

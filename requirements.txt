@@ -15,3 +15,5 @@ ollama
 fastmcp
 mcp
 aiogram
+telethon
+requests
