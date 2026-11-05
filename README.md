@@ -1,11 +1,11 @@
-# Marcus: Omni-Channel AI Executive Assistant
+# Marcus: Autonomous AI Executive Assistant
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-FastMCP-green.svg)](https://modelcontextprotocol.io/)
-[![Google Gemini API](https://img.shields.io/badge/LLM-Gemini%202.5%2F3.1-orange.svg)](https://aistudio.google.com/)
+[![Google Gemini API](https://img.shields.io/badge/LLM-Gemini%20Flash%20Lite-orange.svg)](https://aistudio.google.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Marcus is a fully autonomous, persona-driven **Omni-Channel Executive Assistant** built on modern **Model Context Protocol (MCP)** multi-server architecture. Designed to eliminate daily communication and organizational overhead, Marcus manages multi-account Gmail inboxes, automates Telegram messaging and channel organization, and leverages local SQL and Vector databases for long-term semantic memory.
+Marcus is a fully autonomous, persona-driven **AI Executive Assistant** built on modern **Model Context Protocol (MCP)** multi-server architecture. Designed to eliminate daily communication and organizational overhead, Marcus manages multi-account Gmail inboxes, automates Telegram messaging and channel organization, and leverages local SQL and Vector databases for long-term semantic memory.
 
 Unlike naive chatbot wrappers, Marcus features an asynchronous, streaming multi-turn tool execution loop with strict **Human-in-the-Loop (HITL)** safeguards for destructive and outbound actions.
 
@@ -23,7 +23,7 @@ flowchart TD
     subgraph CoreEngine["Marcus Core Engine (agent/engine.py)"]
         PromptEngine["System Prompts & Context<br/>(identity.md, soul.md, user.md)"]
         LLM["Google Gemini API<br/>(Streaming & Multi-Turn Loop)"]
-        Retry["503 Backoff & Fallback Engine<br/>(Local Ollama lfm2:24b)"]
+        Retry["503 Backoff & Fallback Engine<br/>(Local Ollama lfm2:24b-a2b)"]
         MCPManager["Async MCP Client Manager<br/>(agent/mcp_client.py)"]
     end
 
@@ -97,7 +97,7 @@ flowchart TD
 │   ├── telegram_mcp_server.py      # FastMCP server for Telegram MTProto automation
 │   └── knowledge_mcp_server.py     # FastMCP server for ChromaDB vector memory
 ├── tools/
-│   ├── knowledge_tools.py          # Vector memory utilities
+│   ├── knowledge_tools.py          # Vector memory class (used by agent engine and DB manager)
 │   └── system_tools.py             # System utilities (datetime, clean exit)
 ├── .env.example                    # Template for required environment variables
 ├── .gitignore                      # Security exclusions (tokens, sessions, DBs)
@@ -127,14 +127,12 @@ Defines Marcus's executive responsibilities, MCP boundaries, and error recovery:
   * Marcus **does not rely on LLM self-restraint or prompt thinking** to avoid sending messages or deleting data.
   * Instead, outbound and destructive actions (`send_draft`, `send_message`, `edit_message`, `forward_email`, `unsubscribe_from_email`, `block_sender`, `forward_message`) are **hardcoded in the bot runtime** (`agent/engine.py` & `marcus_bot.py`).
   * Whenever Marcus calls one of these tools, the engine automatically halts execution and presents interactive `[✅ Approve]` and `[❌ Deny]` buttons in Telegram (or a `[y/N]` prompt in CLI). If denied, the tool call returns a denial error and Marcus asks what to do instead.
-* **Autonomous Execution Rules**:
-  * **Memory of Identifiers**: Automatically tracks `email_id`, `chat_id`, and `message_id` from recent tool outputs so you never have to re-supply technical IDs when issuing commands like *"reply to it"* or *"trash that"*.
-  * **Implicit Confirmation**: Casual confirmations like *"yes"*, *"do it"*, or *"okay"* trigger immediate tool invocation without redundant clarifying questions.
-  * **Sequential Tool Calling**: Forbids calling a search tool and a destructive action tool in the same turn to prevent race conditions.
-  * **Smart Search & Noise Filtering**: Automatically tunes Gmail searches to exclude marketing and newsletter noise (`-offers -marketing -newsletter`) and search for ticket or booking PDFs.
+* **Autonomous Execution Rules (Prompt Directives)**:
+  * **Contextual Parameter Resolution**: Instructed via prompt guardrails (`context/identity.md`) to retain and reuse identifiers (e.g., `email_id`, `chat_id`, `message_id`) from previous tool results in the conversation turns without repeatedly asking for technical IDs.
+  * **Search Query Optimization**: Instructed to enrich email queries with negative filters (`-offers -marketing -newsletter`) to eliminate marketing noise during travel and ticket searches.
 * **Output Formatting Templates**: Standardizes clean presentation for user review:
   * **[EMAIL DRAFT CREATED]**: Displays the drafted `To`, `Subject`, and full `Body` text so you can inspect emails before approving the send.
-  * **[OMNI-CHANNEL SUMMARIZATION]**: Clean thread digests categorized by `[GMAIL - RECEIVED]`, `[GMAIL - SENT]`, `[TELEGRAM - RECEIVED]`, and `[TELEGRAM - SENT]`.
+  * **[COMMUNICATION SUMMARIZATION]**: Clean thread digests categorized by `[GMAIL - RECEIVED]`, `[GMAIL - SENT]`, `[TELEGRAM - RECEIVED]`, and `[TELEGRAM - SENT]`.
 
 ### 2. `soul.md` — Personality & Tone of Voice
 Defines Marcus's conversational flavor, attitude, and writing style:
@@ -154,11 +152,15 @@ Defines Marcus's conversational flavor, attitude, and writing style:
 
 ### Prerequisites
 - **Python 3.10+**
+- **Ollama (Must be running locally)**: Required for vector memory embeddings (`bge-m3`) and offline LLM fallback (`lfm2:24b-a2b`). Ensure the Ollama daemon is active (`ollama serve`) and pull the required models:
+  ```bash
+  ollama pull bge-m3
+  ollama pull lfm2:24b-a2b
+  ```
 - **Google AI Studio API Key**: For Gemini models.
 - *(Optional)* **Google Cloud OAuth 2.0 Client Credentials**: Required for Gmail features.
 - *(Optional)* **Telegram API ID & Hash**: Required for Telegram user-client tools.
 - *(Optional)* **Telegram Bot Token**: Required for running the Telegram Bot client (`marcus_bot.py`).
-- *(Optional)* **Ollama**: If using offline embeddings (`bge-m3`) and local fallback models.
 
 ---
 
@@ -166,8 +168,8 @@ Defines Marcus's conversational flavor, attitude, and writing style:
 
 #### 1. Clone the Repository & Create Virtual Environment
 ```bash
-git clone https://github.com/TheTymur/MarcusEmail.git
-cd MarcusEmail
+git clone https://github.com/TheTymur/MarcusAI.git
+cd MarcusAI
 
 python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
