@@ -254,6 +254,7 @@ class MarcusEngine:
                     "The user denied this action. Do not retry it; ask what they want instead.",
                     is_error=True,
                 )
+        print(f"[System Logs]: Executing tool: {name} with args: {args}")
         return await self.mcp_manager.call(name, args)
 
     def _commit_local(self, *messages):
