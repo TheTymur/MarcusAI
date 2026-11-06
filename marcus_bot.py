@@ -2,14 +2,14 @@ import os
 import asyncio
 import uuid
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 import time
 from agent.engine import MarcusEngine
-
-
-load_dotenv()
 
 start_time = time.time()
 
