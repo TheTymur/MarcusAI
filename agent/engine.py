@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="google.genai")
 LOCAL_MODEL = "lfm2:24b-a2b"
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 MAX_LOCAL_MESSAGES = 20
-MAX_GEMINI_HISTORY = 40
+MAX_GEMINI_HISTORY = 100
 REQUIRE_APPROVAL = True
 APPROVAL_TOOLS = {
     "send_draft", "forward_email", "unsubscribe_from_email", "block_sender",
@@ -174,7 +174,7 @@ class MarcusEngine:
         self.gemini_tools = self.mcp_manager.gemini_tools()
         self.local_tools = self.mcp_manager.openai_tools()
 
-        recent_memory = memory_client.get_recent_summaries(limit=3)
+        recent_memory = memory_client.get_recent_summaries(limit=5)
         self.current_instructions = base_instructions + "\n" + recent_memory
         self.current_model_index = 0
         self.gemini_chat = make_gemini_chat(
@@ -393,7 +393,7 @@ class MarcusEngine:
         self.gemini_chat = make_gemini_chat(
             self.current_instructions,
             self.gemini_tools,
-            history=safe_trim(full_history, keep=8),
+            history=safe_trim(full_history, keep=20),
             model=GEMINI_MODELS[self.current_model_index],
         )
 
