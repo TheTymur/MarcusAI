@@ -255,7 +255,28 @@ class MarcusEngine:
                     is_error=True,
                 )
         print(f"[System Logs]: Executing tool: {name} with args: {args}")
-        return await self.mcp_manager.call(name, args)
+        outcome = await self.mcp_manager.call(name, args)
+
+        # Check if the tool failed or returned an error payload
+        err_detail = None
+        if outcome.is_error:
+            err_detail = outcome.text
+        else:
+            raw_text = outcome.text.strip()
+            if raw_text.startswith("{") and raw_text.endswith("}"):
+                try:
+                    data = json.loads(raw_text)
+                    if isinstance(data, dict) and "error" in data:
+                        err_detail = data["error"]
+                except Exception:
+                    pass
+            elif raw_text.lower().startswith("error:") or raw_text.lower().startswith("an error occurred"):
+                err_detail = raw_text
+
+        if err_detail:
+            print(f"[System Logs]: Tool '{name}' failed with error: {err_detail}", flush=True)
+
+        return outcome
 
     def _commit_local(self, *messages):
         self.local_messages.extend(messages)
