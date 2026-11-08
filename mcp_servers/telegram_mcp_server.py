@@ -22,7 +22,7 @@ API_HASH = str(api_hash)
 mcp = FastMCP("Telegram Server")
 
 SESSION_NAME = os.getenv("TELEGRAM_SESSION_NAME", "ukranian_session")
-user_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+user_client = TelegramClient(SESSION_NAME, API_ID, API_HASH, use_ipv6=False)
 
 _connect_lock = asyncio.Lock()
 SESSION_ERROR = (

@@ -23,7 +23,6 @@ if not BOT_TOKEN:
 bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
 dp = Dispatcher()
 
-# Pending approval requests: {approval_id: asyncio.Future}
 pending_approvals = {}
 
 
