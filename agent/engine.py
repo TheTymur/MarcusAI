@@ -116,7 +116,7 @@ async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60):
         try:
             return await asyncio.wait_for(chat.send_message_stream(text), timeout=timeout)
         except asyncio.TimeoutError:
-            print(f"\n[System Info]: Request timed out after {timeout}s. (Attempt {attempt + 1}/{max_retries})")
+            print(f"\n[System Logs]: Request timed out after {timeout}s. (Attempt {attempt + 1}/{max_retries})")
             if attempt < max_retries:
                 continue
             return None
@@ -126,13 +126,13 @@ async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60):
                 return None
             if ("503" in error_msg) and attempt < max_retries:
                 delay = base_delay * (2 ** attempt)
-                print(f"\n[System Info]: API is busy (503). Retrying in {delay}s... (Attempt {attempt + 1}/{max_retries})")
+                print(f"\n[System Logs]: API is busy (503). Retrying in {delay}s... (Attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(delay)
                 continue
             if ("429" in error_msg or "resource_exhausted" in error_msg) and attempt < max_retries:
                 match = re.search(r"retry in (\d+(?:\.\d+)?)s", error_msg)
                 delay = float(match.group(1)) + 1 if match else base_delay * (2 ** attempt)
-                print(f"\n[System Info]: Rate limit reached (429). Waiting for {delay:.2f}s... (Attempt {attempt + 1}/{max_retries})")
+                print(f"\n[System Logs]: Rate limit reached (429). Waiting for {delay:.2f}s... (Attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(delay)
                 continue
             return None
@@ -142,7 +142,6 @@ async def send_with_retry(chat, text, max_retries=2, base_delay=2, timeout=60):
 class MarcusEngine:
     """
     Core agent engine for Marcus.
-    Decoupled from UI: supports Terminal, Telegram Bot, or any custom client.
     """
 
     def __init__(
@@ -218,7 +217,7 @@ class MarcusEngine:
             try:
                 return await self.approval_callback(name, display_args)
             except Exception as e:
-                print(f"[Approval Callback Error]: {e}")
+                print(f"[System Logs]: Approval Callback Error: {e}")
                 return False
 
         # Fallback to terminal input
@@ -372,7 +371,7 @@ class MarcusEngine:
 
         except Exception as e:
             err_msg = f"Local model failed: {e}"
-            print(f"[System Warning]: {err_msg}")
+            print(f"[System Error]: {err_msg}")
             return err_msg
 
     async def _maybe_summarize_and_trim(self):
@@ -477,18 +476,18 @@ class MarcusEngine:
                         break
 
                     except Exception as e:
-                        print(f"\n[System Info]: Stream interrupted on model '{model_name}': {e}")
+                        print(f"\n[System Logs]: Stream interrupted on model '{model_name}': {e}")
                         error_msg = str(e).lower()
 
                         if "503" in error_msg or "unavailable" in error_msg:
-                            print("[System Info]: 503 Service Unavailable mid-stream. Waiting 2s before fallback...")
+                            print("[System Logs]: 503 Service Unavailable mid-stream. Waiting 2s before fallback...")
                             await asyncio.sleep(2)
 
                         if idx < len(GEMINI_MODELS) - 1:
-                            print(f"[System Info]: Switching to fallback model '{GEMINI_MODELS[idx + 1]}'...")
+                            print(f"[System Logs]: Switching to fallback model '{GEMINI_MODELS[idx + 1]}'...")
 
                 if not stream_succeeded:
-                    print("[System Info]: All cloud Gemini models unavailable. Switching to local offline mode...")
+                    print("[System Logs]: All cloud Gemini models unavailable. Switching to local offline mode...")
                     return await self._run_local(user_input)
 
                 if function_calls_to_run:
@@ -522,7 +521,7 @@ async def start_agent():
     engine = MarcusEngine()
     try:
         await engine.initialize()
-        print(f"[System Info]: Loaded {engine.mcp_manager.tool_count} tools from {engine.mcp_manager.server_count} MCP servers.")
+        print(f"[System Logs]: Loaded {engine.mcp_manager.tool_count} tools from {engine.mcp_manager.server_count} MCP servers.")
 
         while True:
             try:
@@ -532,11 +531,11 @@ async def start_agent():
                     continue
 
                 if user_input.lower().strip() == "exit":
-                    print("[System Info]: Exiting application.")
+                    print("[System Logs]: Exiting application.")
                     break
 
             except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
-                print("\n[System Info]: Exiting application.")
+                print("\n[System Logs]: Exiting application.")
                 break
 
             response = await engine.process_message(user_input)

@@ -8,6 +8,11 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 import time
 from agent.engine import MarcusEngine
 
+from agent.crash_handler import CrashRecorder
+
+crash_recorder = CrashRecorder()
+crash_recorder.install()
+
 
 load_dotenv()
 

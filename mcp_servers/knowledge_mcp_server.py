@@ -7,6 +7,11 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from agent.crash_handler import CrashRecorder
+
+crash_recorder = CrashRecorder()
+crash_recorder.install()
+
 mcp = FastMCP("knowledge_server")
 
 

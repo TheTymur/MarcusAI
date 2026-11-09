@@ -23,6 +23,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 from agent.data.database_manager import Emailprocessing
+from agent.crash_handler import CrashRecorder
+
+crash_recorder = CrashRecorder()
+crash_recorder.install()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,7 +71,7 @@ class GmailServiceManager:
             with open(token_file, "w") as token:
                 token.write(creds.to_json())
 
-        self.services[account] = build("gmail", "v1", credentials=creds)
+        self.services[account] = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
     def get_service(self, account: str):
         service = self.services.get(account)
