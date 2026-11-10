@@ -122,8 +122,21 @@ class CrashRecorder:
             sys.__stderr__.write(
                 f"\n[CRITICAL]: '{self.process_name}' crashed! Diagnostic report saved to: {filepath}\n"
             )
+            self._rotate_crash_reports()
         except Exception as err:
             sys.__stderr__.write(f"\n[CRITICAL]: Failed to save crash report for {self.process_name}: {err}\n")
+
+    def _rotate_crash_reports(self, keep: int = 10):
+        """Keep only the most recent `keep` crash_*.txt files; delete the rest."""
+        try:
+            reports = sorted(
+                [f for f in os.listdir(self.reports_dir) if f.startswith("crash_") and f.endswith(".txt")],
+                reverse=True,
+            )
+            for old_file in reports[keep:]:
+                os.remove(os.path.join(self.reports_dir, old_file))
+        except Exception:
+            pass
 
     def create_log_report(self):
         timestamp_str = datetime.now().strftime("%Y-%m-%d")

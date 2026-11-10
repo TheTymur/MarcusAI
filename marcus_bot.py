@@ -130,6 +130,8 @@ async def main():
         print("[System Info]: Cannot start bot because TELEGRAM_BOT_TOKEN is missing in .env.")
         return
 
+    crash_recorder.install(loop=asyncio.get_running_loop())
+
     print("[System Info]: Connecting Marcus Engine...")
     await marcus.initialize()
     print(f"[System Info]: Loaded {marcus.mcp_manager.tool_count} tools from {marcus.mcp_manager.server_count} MCP servers.")
