@@ -25,6 +25,7 @@ flowchart TD
         LLM["Google Gemini API<br/>(Streaming & Multi-Turn Loop)"]
         Retry["503 Backoff & Fallback Engine<br/>(Local Ollama lfm2:24b-a2b)"]
         MCPManager["Async MCP Client Manager<br/>(agent/mcp_client.py)"]
+        CrashHandler["Crash Recorder<br/>(agent/crash_handler.py)<br/>• Stream Interception<br/>• sys.excepthook + asyncio hook<br/>• crash_reports/"]
     end
 
     subgraph MCPServers["Subprocess MCP Servers (FastMCP / Stdio)"]
@@ -36,6 +37,7 @@ flowchart TD
     subgraph Persistence["Storage & Databases"]
         SQLiteDB[("SQLite Database<br/>(agent/data/agent_emails.db)")]
         ChromaStore[("ChromaDB Vector Store<br/>(agent/data/chroma_db)")]
+        CrashLogs[("Crash Reports & Live Log<br/>(crash_reports/ — gitignored)")]
     end
 
     CLI --> CoreEngine
@@ -46,6 +48,8 @@ flowchart TD
     MCPManager <==> KnowledgeServer
     EmailServer --> SQLiteDB
     KnowledgeServer --> ChromaStore
+    CLI --> CrashLogs
+    TGBot --> CrashLogs
 ```
 
 ---
@@ -77,6 +81,13 @@ flowchart TD
 - **Multi-Turn Tool Calling**: Autonomously chains tools (e.g., search -> retrieve -> draft -> summarize) in a single user query.
 - **API Resilience**: Automatic exponential backoff for temporary Gemini 503 unavailability, accompanied by local Ollama fallback support.
 
+### 6. Crash Recording & Diagnostic Logging (`agent/crash_handler.py`)
+- **Rolling In-Memory Buffer**: Intercepts all stdout/stderr output and keeps the last 100 lines in a `deque` with no performance overhead on normal runs.
+- **Shared Live Log**: Every line printed across all processes is appended to `crash_reports/shared_live_logs.log` (capped at 200 lines), giving a single cross-process view.
+- **Automatic Crash Reports**: On any unhandled exception (`sys.excepthook`) or asyncio task failure, a timestamped `crash_reports/crash_<process>_<timestamp>.txt` is written containing the full traceback and the last 100 log lines from all services — no manual log tailing needed.
+- **Auto-Rotation**: Only the 10 most recent crash report files are kept; older ones are deleted automatically to prevent disk fill-up.
+- **On-Demand Log Report**: `crash_recorder.create_log_report()` can be called by Marcus at any time to snapshot the last 100 log lines into a dated `crash_reports/log_report_<date>.txt` — useful for debugging  that hasn't crashed yet.
+
 ---
 
 ## Project Structure
@@ -85,22 +96,30 @@ flowchart TD
 ├── agent/
 │   ├── data/
 │   │   └── database_manager.py     # SQLite schema and email search queries
+│   ├── crash_handler.py            # CrashRecorder: stream interception, crash reports, log rotation
 │   ├── engine.py                   # MarcusEngine: Gemini streaming, tool loops, fallback
-│   └── mcp_client.py               # Async multi-server MCP client manager
+│   ├── mcp_client.py               # Async multi-server MCP client manager
+│   └── __init__.py
 ├── context/
 │   ├── identity.md                 # System instructions and operational constraints
 │   ├── soul.md                     # Persona, tone, and brevity rules
 │   ├── user.md.example             # Template for user profile and contact context
 │   └── user.md                     # Personal user context (gitignored)
+├── crash_reports/                  # Auto-generated — fully gitignored
+│   ├── shared_live_logs.log        # Rolling cross-process live log (last 200 lines)
+│   └── crash_<process>_<ts>.txt   # Per-crash diagnostic report (last 10 kept)
 ├── mcp_servers/
 │   ├── email_mcp_server.py         # FastMCP server for Gmail multi-account operations
 │   ├── telegram_mcp_server.py      # FastMCP server for Telegram MTProto automation
-│   └── knowledge_mcp_server.py     # FastMCP server for ChromaDB vector memory
+│   ├── knowledge_mcp_server.py     # FastMCP server for ChromaDB vector memory
+│   └── __init__.py
 ├── tools/
 │   ├── knowledge_tools.py          # Vector memory class (used by agent engine and DB manager)
-│   └── system_tools.py             # System utilities (datetime, clean exit)
+│   ├── system_tools.py             # System utilities (datetime, clean exit)
+│   └── __init__.py
 ├── .env.example                    # Template for required environment variables
-├── .gitignore                      # Security exclusions (tokens, sessions, DBs)
+├── .gitignore                      # Security exclusions (tokens, sessions, DBs, crash logs)
+├── LICENSE
 ├── main.py                         # CLI entry point
 ├── marcus_bot.py                   # Telegram Bot UI entry point
 └── requirements.txt                # Python dependencies

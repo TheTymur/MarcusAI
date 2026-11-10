@@ -1050,30 +1050,6 @@ async def unpin_chat(
     except Exception as e:
         return {"error": f"Failed to unpin chat: {str(e)}"}
 
-@mcp.tool(annotations=ToolAnnotations(
-    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
-))
-async def dummy_tool():
-    """Dummy tool to test crash handler."""
-    
-    def fatal_crash():
-        import time
-        import os
-        time.sleep(1)  # Wait 1 second so the tool finishes communicating with Marcus
-        try:
-            # Trigger the error
-            raise RuntimeError("INTENTIONAL GLOBAL CRASH!")
-        except Exception as e:
-            # Route it directly to our CrashRecorder
-            sys.excepthook(type(e), e, e.__traceback__)
-            # Hard-kill the background process
-            os._exit(1)
-
-    # Start the crash in a background thread outside of FastMCP's control
-    threading.Thread(target=fatal_crash).start()
-    
-    return "Initiating fatal crash in 1 second. Check your crash_reports folder!"
-
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)
 
