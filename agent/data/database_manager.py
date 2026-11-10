@@ -6,11 +6,12 @@ from email.utils import parsedate_to_datetime
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, Text, DateTime, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker
-
-from tools.knowledge_tools import VectorMemory
  
+from agent.memory import get_memory
+
 Base = declarative_base()
-memory_client = VectorMemory()
+memory_client = get_memory()
+
 
 class Emails(Base):
     __tablename__ = "emails"

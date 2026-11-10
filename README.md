@@ -113,8 +113,7 @@ flowchart TD
 │   ├── telegram_mcp_server.py      # FastMCP server for Telegram MTProto automation
 │   ├── knowledge_mcp_server.py     # FastMCP server for ChromaDB vector memory
 │   └── __init__.py
-├── tools/
-│   ├── knowledge_tools.py          # Vector memory class (used by agent engine and DB manager)
+├── tools/ 
 │   ├── system_tools.py             # System utilities (datetime, clean exit)
 │   └── __init__.py
 ├── .env.example                    # Template for required environment variables

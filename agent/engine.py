@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 
-from tools import VectorMemory
+from agent.memory import get_memory
 from agent.mcp_client import MCPClientManager, ToolResult
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.genai")
@@ -53,7 +53,7 @@ if os.path.exists("context/soul.md"):
 
 base_instructions = f"{role}\n{user}\n{personality}".strip()
 
-memory_client = VectorMemory()
+memory_client = get_memory()
 
 gemini_api_key = os.getenv("API_KEY_GEMINI")
 if not gemini_api_key:
