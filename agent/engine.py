@@ -26,7 +26,11 @@ MAX_GEMINI_HISTORY = 100
 REQUIRE_APPROVAL = True
 APPROVAL_TOOLS = {
     "send_draft", "forward_email", "unsubscribe_from_email", "block_sender",
+    "delete_message",
     "send_message", "edit_message", "forward_message",
+    "forward_to_saved_messages", "send_message_to_saved_messages",
+    "delete_message_in_chat", "delete_chat", "delete_folder",
+    "kick_participant_from_group", "remove_participant",
 }
 
 role = ""

@@ -10,9 +10,6 @@ from telethon.tl.types import MessageActionPhoneCall, InputMessagesFilterPinned
 
 from agent.crash_handler import CrashRecorder
 
-
-import sys, threading
-
 load_dotenv()
 
 crash_recorder = CrashRecorder()
@@ -121,7 +118,7 @@ def _parse_message(msg):
 # openWorldHint: Interacts with external systems/APIs.
 
 @mcp.tool(annotations=ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
 ))
 async def send_message(
     chat_id: int = Field(description="The chat ID of the conversation."), 
@@ -144,7 +141,7 @@ async def send_message(
         return f"Error sending message: {str(e)}"
         
 @mcp.tool(annotations=ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
 ))
 async def edit_message(
     chat_id: int = Field(description="The chat ID of the conversation."), 
@@ -416,7 +413,7 @@ async def delete_message_in_chat(chat_id: int = Field(description="The chat ID o
         return {"error": f"Failed to delete message: {str(e)}"}
 
 @mcp.tool(annotations=ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
 ))
 async def forward_message(chat_id: int = Field(description="The chat ID of the conversation."), message_id: int = Field(description="The ID of the message to forward."), to_chat_id: int = Field(description="The chat ID of the conversation to forward to.")) -> dict:
     """Forwards a message from a chat to another chat on Telegram. 
@@ -436,7 +433,7 @@ async def forward_message(chat_id: int = Field(description="The chat ID of the c
         return {"error": f"Failed to forward message: {str(e)}"}
 
 @mcp.tool(annotations=ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
 ))
 
 async def forward_to_saved_messages(chat_id: int = Field(description="The chat ID of the conversation."), message_id: int = Field(description="The ID of the message to forward.")) -> dict:
@@ -456,7 +453,7 @@ async def forward_to_saved_messages(chat_id: int = Field(description="The chat I
         return {"error": f"Failed to forward message: {str(e)}"}
 
 @mcp.tool(annotations=ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
 ))
 async def send_message_to_saved_messages(message: str = Field(description="The message to send to saved messages.")) -> dict:
     """Sends a message to saved messages on Telegram. 
