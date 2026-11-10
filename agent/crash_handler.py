@@ -8,7 +8,24 @@ from collections import deque
 
 ANSI_ESCAPE = re.compile(r'\x1b(?:\[[0-9;]*[a-zA-Z]|\]8;.*?\x1b\\)')
 SHARED_LOG_PATH = os.path.join("crash_reports", "shared_live_logs.log")
+MAX_SHARED_LINES = 200
+
 _STREAMS_WRAPPED = False
+
+
+def _append_shared_line(line: str):
+    """Append one line to the shared log, keeping only the last MAX_SHARED_LINES."""
+    try:
+        os.makedirs("crash_reports", exist_ok=True)
+        lines = []
+        if os.path.exists(SHARED_LOG_PATH):
+            with open(SHARED_LOG_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        lines.append(line + "\n")
+        with open(SHARED_LOG_PATH, "w", encoding="utf-8") as f:
+            f.writelines(lines[-MAX_SHARED_LINES:])
+    except Exception:
+        pass
 
 
 class _StreamInterceptor:
@@ -31,13 +48,7 @@ class _StreamInterceptor:
             formatted_log = f"[{t_stamp}] {clean_text}"
 
             self._buffer.append(formatted_log)
-
-            try:
-                os.makedirs("crash_reports", exist_ok=True)
-                with open(SHARED_LOG_PATH, "a", encoding="utf-8") as f:
-                    f.write(formatted_log + "\n")
-            except Exception:
-                pass
+            _append_shared_line(formatted_log)
 
     def flush(self):
         self._orig.flush()
@@ -90,8 +101,7 @@ class CrashRecorder:
         if os.path.exists(SHARED_LOG_PATH):
             try:
                 with open(SHARED_LOG_PATH, "r", encoding="utf-8") as f:
-                    all_shared_lines = f.readlines()
-                    logs_to_write = [line.strip() for line in all_shared_lines[-100:]]
+                    logs_to_write = [line.strip() for line in f.readlines()[-100:]]
             except Exception:
                 pass
 
@@ -123,8 +133,7 @@ class CrashRecorder:
         if os.path.exists(SHARED_LOG_PATH):
             try:
                 with open(SHARED_LOG_PATH, "r", encoding="utf-8") as f:
-                    all_shared_lines = f.readlines()
-                    logs_to_write = [line.strip() for line in all_shared_lines[-100:]]
+                    logs_to_write = [line.strip() for line in f.readlines()[-100:]]
             except Exception:
                 pass
 
