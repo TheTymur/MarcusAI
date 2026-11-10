@@ -1167,5 +1167,15 @@ def unsubscribe_from_email(
     except Exception as e:
         return f"An error occurred unsubscribing from {sender}: {e}"
 
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    )
+)
+
+def create_log_report():
+    """Creates a temporary log report of the last 100 logs."""
+    return crash_recorder.create_log_report()
+
 if __name__ == "__main__":
     mcp.run(transport="stdio", show_banner=False)

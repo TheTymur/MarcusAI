@@ -114,3 +114,29 @@ class CrashRecorder:
             )
         except Exception as err:
             sys.__stderr__.write(f"\n[CRITICAL]: Failed to save crash report for {self.process_name}: {err}\n")
+
+    def create_log_report(self):
+        timestamp_str = datetime.now().strftime("%Y-%m-%d")
+        filepath = os.path.join(self.reports_dir, f"log_report_{timestamp_str}.txt")
+
+        logs_to_write = list(self.buffer)
+        if os.path.exists(SHARED_LOG_PATH):
+            try:
+                with open(SHARED_LOG_PATH, "r", encoding="utf-8") as f:
+                    all_shared_lines = f.readlines()
+                    logs_to_write = [line.strip() for line in all_shared_lines[-100:]]
+            except Exception:
+                pass
+
+        report = [
+            f"Log Report - {datetime.now()}",
+            "Last 100 Global Logs:",
+            *logs_to_write,
+        ]
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("\n".join(report))
+            return f"\n[INFO]: Log report saved to: {filepath}\n"
+        except Exception as err:
+            return f"\n[CRITICAL]: Failed to save log report: {err}\n"
