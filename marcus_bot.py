@@ -57,7 +57,6 @@ async def telegram_approval_callback(tool_name: str, tool_args: dict) -> bool:
     )
 
     try:
-        # Wait up to 120 seconds for the user to press a button
         approved = await asyncio.wait_for(future, timeout=120)
         return approved
     except asyncio.TimeoutError:
@@ -83,7 +82,7 @@ async def handle_approval_button(callback: types.CallbackQuery):
 
 @dp.message(Command("status", "ping"))
 async def handle_status(message: types.Message):
-    # Security: Ignore any messages from strangers
+
     if ALLOWED_USER_ID and message.from_user.id != ALLOWED_USER_ID:
         await message.reply("Access denied.")
         return
@@ -91,16 +90,16 @@ async def handle_status(message: types.Message):
     uptime_sec = int(time.time() - start_time)
     uptime_str = f"{uptime_sec // 3600}h {(uptime_sec % 3600) // 60}m {uptime_sec % 60}s"
     await message.reply(
-        f"🟢 **Marcus is Online**\n\n"
-        f"⏱️ **Uptime:** {uptime_str}\n"
-        f"🛠️ **Tools:** {marcus.mcp_manager.tool_count} loaded\n"
-        f"⚡ **Model:** {marcus.model}"
+        f"🟢 Marcus is Online\n"
+        f"⏱️ Uptime: {uptime_str}\n"
+        f"🛠️ Tools: {marcus.mcp_manager.tool_count} loaded\n"
+        f"⚡ Model: {marcus.model}"
     )
 
 
 @dp.message()
 async def handle_user_message(message: types.Message):
-    # Security: Ignore any messages from strangers
+
     if ALLOWED_USER_ID and message.from_user.id != ALLOWED_USER_ID:
         await message.reply("Access denied.")
         return
@@ -110,7 +109,6 @@ async def handle_user_message(message: types.Message):
     status_msg = await message.reply("⏳ Marcus is thinking...")
 
     try:
-        # Process user request through Marcus Core Engine
         response = await marcus.process_message(message.text)
 
         # Telegram has a 4096-char message limit
@@ -145,7 +143,7 @@ async def main():
 
     if ALLOWED_USER_ID:
         try:
-            await bot.send_message(ALLOWED_USER_ID, "🟢 **Marcus is Online**")
+            await bot.send_message(ALLOWED_USER_ID, "🟢 Marcus is Online")
         except Exception as e:
             print(f"[System Error]: Could not send startup message: {e}")
     else:
@@ -156,7 +154,7 @@ async def main():
     finally:
         if ALLOWED_USER_ID:
             try:
-                await bot.send_message(ALLOWED_USER_ID, "🔴 **Marcus is shutting down.**")
+                await bot.send_message(ALLOWED_USER_ID, "🔴 Marcus is shutting down.")
             except Exception as e:
                 print(f"[System Error]: Could not send shutdown message: {e}")
         await marcus.cleanup()
